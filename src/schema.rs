@@ -29,7 +29,8 @@ diesel::table! {
         username -> Varchar,
         password -> Varchar,
         full_name -> Varchar,
-        token -> Varchar,
+        access_token -> Varchar,
+        refresh_token -> Varchar,
         create_time -> Timestamp,
         is_delete -> Bool,
     }
