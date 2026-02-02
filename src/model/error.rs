@@ -10,16 +10,22 @@ pub struct NoData {}
 
 #[derive(Debug, Error)]
 pub enum AppError {
+    ///请求体错误
     #[error("{0}")]
     BadRequest(String),
+    ///404未找到
     #[error("{0}")]
     NotFound(String),
+    ///不可处理
     #[error("{0}")]
     Unprocessable(String),
+    ///服务器内部错误
     #[error("{0}")]
     Internal(String),
+    ///未授权
     #[error("{0}")]
     UnAuthorized(String),
+    ///禁止
     #[error("{0}")]
     FORBIDDEN(String),
 }

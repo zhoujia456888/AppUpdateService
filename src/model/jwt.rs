@@ -14,7 +14,7 @@ pub fn get_jwt_refresh_secret_key() -> String {
     jwt_refresh_secret_key
 }
 
-/// 配置
+/// JWT配置
 pub struct JwtConfig {
     pub access_secret: String,
     pub refresh_secret: String,
@@ -35,48 +35,70 @@ impl Default for JwtConfig {
 
 pub static JWT_CONFIG: Lazy<JwtConfig> = Lazy::new(JwtConfig::default);
 
+///token类型
 #[derive(Debug, Serialize, Clone, Deserialize, ToSchema)]
 pub enum TokenType {
+    ///访问Token
     Access,
+    ///刷新Token
     Refresh,
 }
 
-// Token Claims
+/// 访问Token Claims
 #[derive(Debug, Serialize, Clone, Deserialize)]
 pub struct AccessTokenClaims {
-    pub user_name: String,     //用户名称
-    pub user_id: String,       // 用户ID
-    pub exp: i64,              // 过期时间
-    pub iat: i64,              // 签发时间
-    pub token_type: TokenType, // token类型
-}
-
-#[derive(Debug, Serialize, Clone, Deserialize, ToSchema)]
-pub struct RefreshTokenClaims {
-    pub user_name: String, //用户名称
-    pub user_id: String,   // 用户ID
+    ///用户名称
+    pub user_name: String,
+    /// 用户ID
+    pub user_id: String,
+    /// 过期时间
     pub exp: i64,
+    /// 签发时间
     pub iat: i64,
+    /// token类型
     pub token_type: TokenType,
 }
 
-//刷新Token携带的参数
+///刷新Token 声明
+#[derive(Debug, Serialize, Clone, Deserialize, ToSchema)]
+pub struct RefreshTokenClaims {
+    ///用户名称
+    pub user_name: String,
+    /// 用户ID
+    pub user_id: String,
+    /// 过期时间
+    pub exp: i64,
+    /// 签发时间
+    pub iat: i64,
+    /// token类型
+    pub token_type: TokenType,
+}
+
+///刷新Token携带的参数
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct RefreshTokenReq {
+    ///用户Id
     pub user_id: String,
+    ///刷新Token
     pub refresh_token: String,
 }
 
+///刷新Token返回参数
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct  RefreshTokenResp{
+    ///刷新TokenClaims
     pub claims: RefreshTokenClaims,
+    ///访问Token
     pub access_token: String,
+    ///刷新Token
     pub refresh_token: String,
 }
 
-// Token 响应
+/// 获取或刷新Token 返回响应参数
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct TokenResp{
+    ///访问Token
     pub access_token: String,
+    ///刷新Token
     pub refresh_token: String,
 }

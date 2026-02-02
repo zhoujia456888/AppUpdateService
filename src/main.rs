@@ -9,6 +9,8 @@ use salvo::prelude::*;
 use salvo_oapi::security::{Http, HttpAuthScheme};
 use salvo_oapi::SecurityScheme;
 use std::sync::Arc;
+use std::time::Duration;
+use moka::future::Cache;
 
 pub mod api;
 pub mod db;
@@ -23,6 +25,12 @@ async fn main() {
     //数据库
     let pool = Arc::new(establish_connection_pool());
 
+    //登录验证码缓存
+    let captcha_cache: Cache<String, String> = Cache::builder()
+        .time_to_live(Duration::from_secs(60 * 10))
+        .max_capacity(10_000)
+        .build();
+
     let auth_handler: JwtAuth<AccessTokenClaims, _> =
         JwtAuth::new(ConstDecoder::from_secret(get_jwt_secret_key().as_bytes()))
             .finders(vec![Box::new(HeaderFinder::new())])
@@ -31,7 +39,8 @@ async fn main() {
     //设置端口为5800
     let acceptor = TcpListener::new("0.0.0.0:5800").bind().await;
     //添加数据库配置
-    let router = Router::new().hoop(affix_state::inject(pool));
+    let router = Router::new()
+        .hoop(affix_state::inject(pool).inject(Arc::new(captcha_cache)));
 
     //添加接口路由配置
     let router = router

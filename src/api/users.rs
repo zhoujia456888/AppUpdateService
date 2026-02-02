@@ -3,9 +3,10 @@ use crate::model::error::{ApiOut, AppError};
 use crate::model::jwt::{AccessTokenClaims, RefreshTokenReq, TokenResp};
 use crate::model::response::ApiResponse;
 use crate::model::users::{
-    LoginReq, LoginResp, NewUser, User, UserCreateReq, UserCreateResp, UserInfoResp,
+    CaptchaResp, LoginReq, LoginResp, User, UserCreateReq, UserCreateResp, UserInfoResp,
 };
 use crate::schema::*;
+use crate::utils::auth_captcha_utils;
 use crate::utils::database_utils::connect_database;
 use crate::utils::jwt_service::{
     generate_access_token, generate_refresh_token, refresh_access_token,
@@ -14,10 +15,13 @@ use crate::utils::password_utils::{hash_password, verify_password};
 use chrono::Local;
 use diesel::prelude::*;
 use diesel::r2d2::{ConnectionManager, PooledConnection};
+use moka::future::Cache;
 use salvo::prelude::*;
 use salvo_oapi::endpoint;
+use std::sync::Arc;
 use time::OffsetDateTime;
 use uuid::Uuid;
+use crate::utils::auth_captcha_utils::get_captcha_cache;
 
 #[endpoint(tags("Users"), summary = "创建用户", description = "创建用户",request_body = UserCreateReq
 )]
@@ -53,7 +57,7 @@ pub async fn create_users(depot: &mut Depot, req: &mut Request) -> ApiOut<UserCr
     let now = Local::now().naive_local();
 
     //创建用户
-    let new_user = NewUser {
+    let new_user = User {
         id: Uuid::new_v4(),
         username: user_create.username.clone(),
         password: hashed,
@@ -76,12 +80,58 @@ pub async fn create_users(depot: &mut Depot, req: &mut Request) -> ApiOut<UserCr
     })
 }
 
-#[endpoint(tags("Users"), summary = "登录", description = "登录",request_body = UserCreateReq)]
+#[endpoint(
+    tags("Users"),
+    summary = "获取登录验证码",
+    description = "获取登录验证码"
+)]
+pub async fn get_auth_captcha(depot: &mut Depot) -> ApiOut<CaptchaResp> {
+    let captcha = auth_captcha_utils::get_auth_captcha();
+
+    let cache = match get_captcha_cache(depot) {
+        Ok(value) => value,
+        Err(value) => return value,
+    };
+
+    cache.insert(captcha.id.clone(), captcha.text.clone()).await;
+
+    ApiOut::ok(CaptchaResp {
+        captcha_id: captcha.id,
+        captcha_img: captcha.img,
+    })
+}
+
+
+
+#[endpoint(tags("Users"), summary = "登录", description = "登录",request_body = LoginReq)]
 pub async fn login(depot: &mut Depot, req: &mut Request) -> ApiOut<LoginResp> {
     let login_req = match parse_json_body::<LoginReq>(req).await {
         Ok(v) => v,
         Err(e) => return ApiOut::err(e),
     };
+
+    //验证验证码
+    let cache = match depot.obtain::<Arc<Cache<String, String>>>() {
+        Ok(cache) => cache,
+        Err(_) => {
+            return ApiOut::err(AppError::Internal("验证码缓存未初始化".to_string()));
+        }
+    };
+
+    let cached = cache.get(&login_req.captcha_id).await;
+    let cached = match cached {
+        Some(v) => v,
+        None => {
+            return ApiOut::err(AppError::BadRequest("验证码已过期或不存在".to_string()));
+        }
+    };
+
+    if cached.trim().to_lowercase() != login_req.captcha_code.trim().to_lowercase() {
+        return ApiOut::err(AppError::BadRequest("验证码错误".to_string()));
+    }
+
+    // 验证码验证通过后删除，防止复用
+    cache.invalidate(&login_req.captcha_id).await;
 
     let mut conn = connect_database(depot);
 
@@ -358,6 +408,7 @@ pub fn auth_token(depot: &mut Depot, ctrl: &mut FlowCtrl) -> ApiOut<()> {
 pub fn users_router() -> Router {
     Router::with_path("users")
         .push(Router::with_path("create_users").post(create_users))
+        .push(Router::with_path("get_auth_captcha").post(get_auth_captcha))
         .push(Router::with_path("login").post(login))
         .push(
             Router::with_path("get_users_information")
