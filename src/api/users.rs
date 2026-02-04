@@ -7,6 +7,7 @@ use crate::model::users::{
 };
 use crate::schema::*;
 use crate::utils::auth_captcha_utils;
+use crate::utils::auth_captcha_utils::get_captcha_cache;
 use crate::utils::database_utils::connect_database;
 use crate::utils::jwt_service::{
     generate_access_token, generate_refresh_token, refresh_access_token,
@@ -21,7 +22,6 @@ use salvo_oapi::endpoint;
 use std::sync::Arc;
 use time::OffsetDateTime;
 use uuid::Uuid;
-use crate::utils::auth_captcha_utils::get_captcha_cache;
 
 #[endpoint(tags("Users"), summary = "创建用户", description = "创建用户",request_body = UserCreateReq
 )]
@@ -63,6 +63,7 @@ pub async fn create_users(depot: &mut Depot, req: &mut Request) -> ApiOut<UserCr
         password: hashed,
         full_name: user_create.username.clone(),
         create_time: now,
+        update_time:now,
         access_token: "".to_string(),
         refresh_token: "".to_string(),
         is_delete: false,
@@ -100,8 +101,6 @@ pub async fn get_auth_captcha(depot: &mut Depot) -> ApiOut<CaptchaResp> {
         captcha_img: captcha.img,
     })
 }
-
-
 
 #[endpoint(tags("Users"), summary = "登录", description = "登录",request_body = LoginReq)]
 pub async fn login(depot: &mut Depot, req: &mut Request) -> ApiOut<LoginResp> {
@@ -145,6 +144,10 @@ pub async fn login(depot: &mut Depot, req: &mut Request) -> ApiOut<LoginResp> {
         Ok(None) => return ApiOut::err(AppError::BadRequest("未查询到该用户".to_string())),
         Err(e) => return ApiOut::err(AppError::Internal(e.to_string())),
     };
+
+    if existing_user.is_delete == true {
+        return ApiOut::err(AppError::BadRequest("当前用户已经被删除！".to_string()));
+    }
 
     //验证密码
     if !verify_password(
@@ -199,7 +202,7 @@ pub async fn login(depot: &mut Depot, req: &mut Request) -> ApiOut<LoginResp> {
     security(("Authorization" = [])),
     description = "获取用户信息"
 )]
-pub async fn get_users_information(depot: &mut Depot) -> ApiOut<UserInfoResp> {
+pub async fn get_users_info(depot: &mut Depot) -> ApiOut<UserInfoResp> {
     let current_user = depot.get::<User>("user").expect("未找到用户。");
 
     let user_response_model = UserInfoResp {
@@ -411,9 +414,9 @@ pub fn users_router() -> Router {
         .push(Router::with_path("get_auth_captcha").post(get_auth_captcha))
         .push(Router::with_path("login").post(login))
         .push(
-            Router::with_path("get_users_information")
+            Router::with_path("get_users_info")
                 .hoop(auth_token)
-                .post(get_users_information),
+                .post(get_users_info),
         )
         .push(Router::with_path("refresh_token").post(refresh_token))
 }

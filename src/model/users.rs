@@ -26,6 +26,8 @@ pub struct User {
     pub refresh_token: String,
     ///用户创建时间
     pub create_time: NaiveDateTime,
+    ///用户更新时间
+    pub update_time: NaiveDateTime,
     ///是否删除
     pub is_delete: bool,
 }

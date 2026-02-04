@@ -25,13 +25,16 @@ app更新后台服务，用于APP更新。
 diesel setup
 
 //创建迁移
-diesel migration generate
+diesel migration generate update
 
 //运行迁移
 diesel migration run
 
 //重置迁移
 diesel migration redo
+
+///完全重置
+diesel database reset
 ```
 
 

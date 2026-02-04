@@ -4,8 +4,9 @@ diesel::table! {
     app_channel (id) {
         id -> Uuid,
         channel_name -> Varchar,
-        create_user_id -> Nullable<Uuid>,
+        create_user_id -> Uuid,
         create_time -> Timestamp,
+        update_time -> Timestamp,
         is_delete -> Bool,
     }
 }
@@ -15,10 +16,11 @@ diesel::table! {
         id -> Uuid,
         app_name -> Varchar,
         app_version -> Varchar,
-        app_download_url -> Nullable<Varchar>,
-        create_user_id -> Nullable<Uuid>,
-        channel_id -> Nullable<Uuid>,
+        app_download_url -> Varchar,
+        create_user_id -> Uuid,
+        channel_id -> Uuid,
         create_time -> Timestamp,
+        update_time -> Timestamp,
         is_delete -> Bool,
     }
 }
@@ -32,6 +34,7 @@ diesel::table! {
         access_token -> Varchar,
         refresh_token -> Varchar,
         create_time -> Timestamp,
+        update_time -> Timestamp,
         is_delete -> Bool,
     }
 }
