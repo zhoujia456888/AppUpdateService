@@ -199,7 +199,7 @@ pub async fn login(depot: &mut Depot, req: &mut Request) -> ApiOut<LoginResp> {
     security(("Authorization" = [])),
     description = "获取用户信息"
 )]
-pub async fn get_users_information(depot: &mut Depot) -> ApiOut<UserInfoResp> {
+pub async fn get_users_info(depot: &mut Depot) -> ApiOut<UserInfoResp> {
     let current_user = depot.get::<User>("user").expect("未找到用户。");
 
     let user_response_model = UserInfoResp {
@@ -411,9 +411,9 @@ pub fn users_router() -> Router {
         .push(Router::with_path("get_auth_captcha").post(get_auth_captcha))
         .push(Router::with_path("login").post(login))
         .push(
-            Router::with_path("get_users_information")
+            Router::with_path("get_users_info")
                 .hoop(auth_token)
-                .post(get_users_information),
+                .post(get_users_info),
         )
         .push(Router::with_path("refresh_token").post(refresh_token))
 }
