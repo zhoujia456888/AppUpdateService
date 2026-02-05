@@ -88,6 +88,7 @@ pub async fn get_app_channel_list(depot: &mut Depot) -> ApiOut<Vec<GetAppChannel
     let resp_list: Vec<GetAppChannelListResp> = all_app_channel
         .into_iter()
         .map(|channel| GetAppChannelListResp {
+            channel_id: channel.id,
             channel_name: channel.channel_name.to_string(),
             create_time: channel.create_time,
         })

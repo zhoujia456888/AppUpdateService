@@ -46,7 +46,9 @@ pub struct CreateAppChannelResp {
 ///获取当前账户下的所有渠道返回参数
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct GetAppChannelListResp {
-    ///用户名
+    ///渠道Id
+    pub channel_id: Uuid,
+    ///渠道名称
     pub channel_name: String,
     ///创建渠道时间
     pub create_time: NaiveDateTime,
