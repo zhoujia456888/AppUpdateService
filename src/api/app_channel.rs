@@ -30,7 +30,7 @@ pub async fn create_app_channel(
 
     let current_user_id = depot.get::<User>("user").expect("未找到用户。").id;
 
-    //检查用户是否存在
+    //检查渠道是否存在
     let existing_app_channel = app_channel::table
         .filter(app_channel::channel_name.eq(&app_channel_create.channel_name))
         .filter(app_channel::create_user_id.eq(&current_user_id))
