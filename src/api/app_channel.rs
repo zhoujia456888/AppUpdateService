@@ -150,7 +150,7 @@ pub async fn delete_app_channel(
     depot: &mut Depot,
     req: &mut Request,
 ) -> ApiOut<DeleteAppChannelResp> {
-    let app_channel_req = match parse_json_body::<UpdateAppChannelReq>(req).await {
+    let app_channel_req = match parse_json_body::<DeleteAppChannelReq>(req).await {
         Ok(v) => v,
         Err(e) => return ApiOut::err(e),
     };
@@ -170,7 +170,7 @@ pub async fn delete_app_channel(
             } else {
                 ApiOut::ok(DeleteAppChannelResp {
                     id: app_channel_req.id,
-                    delete_info: "删除渠道信息成功".to_string(),
+                    delete_info: format!("渠道'{}'删除成功", app_channel_req.channel_name),
                 })
             }
         }
@@ -189,7 +189,7 @@ pub async fn completely_delete_app_channel(
     depot: &mut Depot,
     req: &mut Request,
 ) -> ApiOut<DeleteAppChannelResp> {
-    let app_channel_req = match parse_json_body::<UpdateAppChannelReq>(req).await {
+    let app_channel_req = match parse_json_body::<DeleteAppChannelReq>(req).await {
         Ok(v) => v,
         Err(e) => return ApiOut::err(e),
     };
@@ -204,18 +204,10 @@ pub async fn completely_delete_app_channel(
         Ok(0) => ApiOut::err(AppError::NotFound(
             format!("渠道Id'{}' 未找到", app_channel_req.id).to_string(),
         )),
-        Ok(affected_rows) => {
-            if affected_rows == 0 {
-                ApiOut::err(AppError::NotFound(
-                    format!("渠道Id'{}' 未找到", app_channel_req.id).to_string(),
-                ))
-            } else {
-                ApiOut::ok(DeleteAppChannelResp {
-                    id: app_channel_req.id,
-                    delete_info: "完全删除渠道信息成功".to_string(),
-                })
-            }
-        }
+        Ok(affected_rows) => ApiOut::ok(DeleteAppChannelResp {
+            id: app_channel_req.id,
+            delete_info: format!("渠道'{}'删除成功", app_channel_req.channel_name),
+        }),
         Err(e) => ApiOut::err(AppError::Internal(
             format!("完全删除渠道信息失败:{}", e).to_string(),
         )),
