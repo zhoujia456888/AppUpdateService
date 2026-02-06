@@ -4,11 +4,13 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-salvo = { version = "0.89.0", features = ["logging", "oapi", "affix-state", "anyhow", "jwt-auth", "test", "cors", "catch-panic","cache"] }
+salvo = { version = "0.89.0", features = ["logging", "oapi", "affix-state", "anyhow", "jwt-auth", "test", "cors", "catch-panic", "cache"] }
 salvo-oapi = "0.89.0"
 tokio = { version = "1.49.0", features = ["macros"] }
 tracing = "0.1.44"
-tracing-subscriber = "0.3.22"
+tracing-subscriber = { version = "0.3.22", features = ["env-filter", "json"] }
+tracing-appender = "0.2.4"
+anyhow = "1.0.101"
 uuid = { version = "1.19.0", features = ["serde", "v4"] }
 time = "0.3.45"
 serde = { version = "1.0.228", features = ["derive"] }
@@ -20,7 +22,7 @@ dotenvy = "0.15"
 serde_path_to_error = "0.1.20"
 jsonwebtoken = "10.2.0"
 argon2 = "0.5.3"
-password-hash =  "0.5.0"
+password-hash = "0.5.0"
 log = "0.4.29"
 once_cell = "1.21.3"
 captcha-rs = "0.3.0"

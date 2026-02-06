@@ -64,7 +64,7 @@ impl Writer for AppError {
 /// 仅用于 OpenAPI 文档：错误响应 body（schema = ApiResponse<NoData>）
 #[derive(ToResponse)]
 #[salvo(response(description = "Error response", content_type = "application/json"))]
-pub struct ErrorResponseBody(ApiResponse<NoData>);
+pub struct ErrorResponseBody;
 
 /// ✅ handler 的唯一返回类型：不需要 Ok/Err，不需要 .into()
 pub enum ApiOut<T: salvo_oapi::ToSchema> {

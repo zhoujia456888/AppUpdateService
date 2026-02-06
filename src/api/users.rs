@@ -20,6 +20,7 @@ use moka::future::Cache;
 use salvo::prelude::*;
 use salvo_oapi::endpoint;
 use std::sync::Arc;
+use log::{info};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
@@ -307,7 +308,7 @@ pub fn auth_token(depot: &mut Depot, ctrl: &mut FlowCtrl) -> ApiOut<()> {
 
     match auth_state {
         JwtAuthState::Authorized => {
-            println!("{}", "Token 有效");
+            info!("Token 有效");
             match token_data {
                 None => {
                     ctrl.skip_rest();
