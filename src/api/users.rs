@@ -3,7 +3,7 @@ use crate::model::error::{ApiOut, AppError};
 use crate::model::jwt::{AccessTokenClaims, RefreshTokenReq, TokenResp};
 use crate::model::response::ApiResponse;
 use crate::model::users::{
-    CaptchaResp, LoginReq, LoginResp, User, UserCreateReq, UserCreateResp, UserInfoResp,
+    CaptchaResp, LoginReq, LoginResp, RegisterReq, RegisterResp, User, UserInfoResp,
 };
 use crate::schema::*;
 use crate::utils::auth_captcha_utils;
@@ -23,68 +23,10 @@ use std::sync::Arc;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
-#[endpoint(tags("Users"), summary = "创建用户", description = "创建用户",request_body = UserCreateReq
-)]
-pub async fn create_users(depot: &mut Depot, req: &mut Request) -> ApiOut<UserCreateResp> {
-    let user_create = match parse_json_body::<UserCreateReq>(req).await {
-        Ok(v) => v,
-        Err(e) => return ApiOut::err(e),
-    };
-    let mut conn = connect_database(depot);
-
-    //检查用户是否存在
-    let existing_user = users::table
-        .filter(users::username.eq(&user_create.username))
-        .first::<User>(&mut conn)
-        .optional()
-        .expect("查询用户失败");
-
-    if existing_user.is_some() {
-        return ApiOut::err(AppError::BadRequest(
-            format!("用户 '{}' 已经存在", user_create.username).to_string(),
-        ));
-    }
-
-    //散列密码
-    let hashed = match hash_password(user_create.password.clone().as_str()) {
-        Ok(h) => h,
-        Err(e) => {
-            return ApiOut::err(AppError::BadRequest(
-                format!("散列密码报错：{}", e).to_string(),
-            ));
-        }
-    };
-    let now = Local::now().naive_local();
-
-    //创建用户
-    let new_user = User {
-        id: Uuid::new_v4(),
-        username: user_create.username.clone(),
-        password: hashed,
-        full_name: user_create.username.clone(),
-        create_time: now,
-        update_time:now,
-        access_token: "".to_string(),
-        refresh_token: "".to_string(),
-        is_delete: false,
-    };
-
-    //插入数据到数据库
-    diesel::insert_into(users::table)
-        .values(&new_user)
-        .execute(&mut conn)
-        .expect("插入新用户失败！");
-
-    ApiOut::ok(UserCreateResp {
-        username: user_create.username.to_string(),
-        create_info: format!("用户'{}'创建成功！", user_create.username),
-    })
-}
-
 #[endpoint(
     tags("Users"),
-    summary = "获取登录验证码",
-    description = "获取登录验证码"
+    summary = "获取登录注册验证码",
+    description = "获取登录注册验证码"
 )]
 pub async fn get_auth_captcha(depot: &mut Depot) -> ApiOut<CaptchaResp> {
     let captcha = auth_captcha_utils::get_auth_captcha();
@@ -102,6 +44,76 @@ pub async fn get_auth_captcha(depot: &mut Depot) -> ApiOut<CaptchaResp> {
     })
 }
 
+#[endpoint(tags("Users"), summary = "用户注册", description = "用户注册",request_body = RegisterReq)]
+pub async fn register(depot: &mut Depot, req: &mut Request) -> ApiOut<RegisterResp> {
+    let register_req = match parse_json_body::<RegisterReq>(req).await {
+        Ok(v) => v,
+        Err(e) => return ApiOut::err(e),
+    };
+
+    //验证密码是否一致
+    if register_req.password != register_req.confirm_password {
+        return ApiOut::err(AppError::BadRequest("两次输入的密码不一致".to_string()));
+    }
+
+    //验证验证码
+    if let Err(e) =
+        validate_captcha(depot, &register_req.captcha_id, &register_req.captcha_code).await
+    {
+        return ApiOut::err(e);
+    }
+
+    let mut conn = connect_database(depot);
+
+    //检查用户是否存在
+    let existing_user = users::table
+        .filter(users::username.eq(&register_req.username))
+        .first::<User>(&mut conn)
+        .optional()
+        .expect("查询用户失败");
+
+    if existing_user.is_some() {
+        return ApiOut::err(AppError::BadRequest(
+            format!("用户 '{}' 已经存在", register_req.username).to_string(),
+        ));
+    }
+
+    //散列密码
+    let hashed = match hash_password(register_req.password.clone().as_str()) {
+        Ok(h) => h,
+        Err(e) => {
+            return ApiOut::err(AppError::BadRequest(
+                format!("散列密码报错：{}", e).to_string(),
+            ));
+        }
+    };
+    let now = Local::now().naive_local();
+
+    //创建用户
+    let new_user = User {
+        id: Uuid::new_v4(),
+        username: register_req.username.clone(),
+        password: hashed,
+        full_name: register_req.username.clone(),
+        create_time: now,
+        update_time: now,
+        access_token: "".to_string(),
+        refresh_token: "".to_string(),
+        is_delete: false,
+    };
+
+    //插入数据到数据库
+    diesel::insert_into(users::table)
+        .values(&new_user)
+        .execute(&mut conn)
+        .expect("插入新用户失败！");
+
+    ApiOut::ok(RegisterResp {
+        username: register_req.username.to_string(),
+        register_info: format!("用户'{}'创建成功！", register_req.username),
+    })
+}
+
 #[endpoint(tags("Users"), summary = "登录", description = "登录",request_body = LoginReq)]
 pub async fn login(depot: &mut Depot, req: &mut Request) -> ApiOut<LoginResp> {
     let login_req = match parse_json_body::<LoginReq>(req).await {
@@ -110,27 +122,9 @@ pub async fn login(depot: &mut Depot, req: &mut Request) -> ApiOut<LoginResp> {
     };
 
     //验证验证码
-    let cache = match depot.obtain::<Arc<Cache<String, String>>>() {
-        Ok(cache) => cache,
-        Err(_) => {
-            return ApiOut::err(AppError::Internal("验证码缓存未初始化".to_string()));
-        }
-    };
-
-    let cached = cache.get(&login_req.captcha_id).await;
-    let cached = match cached {
-        Some(v) => v,
-        None => {
-            return ApiOut::err(AppError::BadRequest("验证码已过期或不存在".to_string()));
-        }
-    };
-
-    if cached.trim().to_lowercase() != login_req.captcha_code.trim().to_lowercase() {
-        return ApiOut::err(AppError::BadRequest("验证码错误".to_string()));
+    if let Err(e) = validate_captcha(depot, &login_req.captcha_id, &login_req.captcha_code).await {
+        return ApiOut::err(e);
     }
-
-    // 验证码验证通过后删除，防止复用
-    cache.invalidate(&login_req.captcha_id).await;
 
     let mut conn = connect_database(depot);
 
@@ -408,10 +402,45 @@ pub fn auth_token(depot: &mut Depot, ctrl: &mut FlowCtrl) -> ApiOut<()> {
     }
 }
 
+//验证验证码
+async fn validate_captcha(
+    depot: &mut Depot,
+    captcha_id: &str,
+    captcha_code: &str,
+) -> Result<(), AppError> {
+    // 从depot中获取验证码缓存
+    let cache = match depot.obtain::<Arc<Cache<String, String>>>() {
+        Ok(cache) => cache,
+        Err(_) => {
+            return Err(AppError::Internal("验证码缓存未初始化".to_string()));
+        }
+    };
+
+    // 根据验证码ID获取缓存中的验证码文本
+    let cached = cache.get(captcha_id).await;
+    let cached = match cached {
+        Some(v) => v,
+        None => {
+            return Err(AppError::BadRequest("验证码已过期或不存在".to_string()));
+        }
+    };
+
+    // 忽略大小写比对验证码
+    if cached.trim().to_lowercase() != captcha_code.trim().to_lowercase() {
+        return Err(AppError::BadRequest("验证码错误".to_string()));
+    }
+
+    // 验证码验证通过后删除缓存，防止复用
+    cache.invalidate(captcha_id).await;
+
+    // 验证通过，返回Ok
+    Ok(())
+}
+
 pub fn users_router() -> Router {
     Router::with_path("users")
-        .push(Router::with_path("create_users").post(create_users))
         .push(Router::with_path("get_auth_captcha").post(get_auth_captcha))
+        .push(Router::with_path("register").post(register))
         .push(Router::with_path("login").post(login))
         .push(
             Router::with_path("get_users_info")

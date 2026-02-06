@@ -96,6 +96,33 @@ pub struct LoginResp {
     pub login_info: String,
 }
 
+///用户注册请求参数
+#[derive(Serialize, Deserialize, Extractible, Debug, ToSchema)]
+pub struct RegisterReq{
+    ///用户名
+    pub username: String,
+    ///密码
+    pub password: String,
+    ///确认密码
+    pub confirm_password: String,
+    ///验证码Id
+    pub captcha_id: String,
+    ///验证码code
+    pub captcha_code: String,
+}
+
+///用户注册返回数据
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct RegisterResp{
+    ///用户名
+    pub username: String,
+    ///注册信息
+    pub register_info: String,
+}
+
+
+
+
 ///用户信息返回数据
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct UserInfoResp {
