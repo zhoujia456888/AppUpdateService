@@ -1,22 +1,21 @@
-use std::sync::Arc;
-use std::time::Duration;
-use moka::future::Cache;
-use salvo::catcher::Catcher;
-use salvo::jwt_auth::{ConstDecoder, HeaderFinder};
-use salvo::prelude::*;
-use salvo_oapi::security::{Http, HttpAuthScheme};
-use salvo_oapi::SecurityScheme;
-use tracing::info;
 use crate::api::app_channel::app_channel_router;
 use crate::api::ping::ping_router;
 use crate::api::users::users_router;
 use crate::db::establish_connection_pool;
-use crate::middleware::access_log::access_log;
-use crate::model::jwt::{get_jwt_secret_key, AccessTokenClaims};
+use crate::middleware::access_log::AccessLog;
+use crate::model::jwt::{AccessTokenClaims, get_jwt_secret_key};
 use crate::utils::json_error_catcher::json_error_catcher;
+use moka::future::Cache;
+use salvo::catcher::Catcher;
+use salvo::jwt_auth::{ConstDecoder, HeaderFinder};
+use salvo::prelude::*;
+use salvo_oapi::SecurityScheme;
+use salvo_oapi::security::{Http, HttpAuthScheme};
+use std::sync::Arc;
+use std::time::Duration;
+use tracing::info;
 
 pub async fn run() {
-
     //数据库
     let pool = Arc::new(establish_connection_pool());
 
@@ -34,7 +33,9 @@ pub async fn run() {
     //设置端口为5800
     let acceptor = TcpListener::new("0.0.0.0:5800").bind().await;
     //添加数据库配置
-    let router = Router::new().hoop(affix_state::inject(pool).inject(Arc::new(captcha_cache)));
+    let router = Router::new()
+        .hoop(AccessLog {})
+        .hoop(affix_state::inject(pool).inject(Arc::new(captcha_cache)));
 
     //添加接口路由配置
     let router = router.push(
@@ -63,9 +64,7 @@ pub async fn run() {
         .unshift(SwaggerUi::new("/api-doc/openapi.json").into_router("/swagger-ui"));
 
     let service = Service::new(router).hoop(auth_handler);
-    let catcher = Catcher::default()
-        .hoop(json_error_catcher)
-        .hoop(access_log);
+    let catcher = Catcher::default().hoop(json_error_catcher);
 
     let service = service.catcher(catcher);
     //开始服务请求

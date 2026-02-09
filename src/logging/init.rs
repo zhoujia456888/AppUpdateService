@@ -1,7 +1,7 @@
 use anyhow::Result;
-use std::{path::PathBuf, time::Duration};
+use std::{path::{Path, PathBuf}, time::Duration};
 use tracing_subscriber::filter;
-use tracing_subscriber::{Layer, layer::SubscriberExt, util::SubscriberInitExt};
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, Layer};
 
 pub struct LoggingGuard {
     _app_guard: tracing_appender::non_blocking::WorkerGuard,
@@ -12,14 +12,13 @@ pub fn init_logging(logs_dir: impl Into<PathBuf>, retention_days: u64) -> Result
     let logs_dir = logs_dir.into();
     std::fs::create_dir_all(&logs_dir)?;
 
-    // 文件滚动（按天）
+    // 按天滚动
     let app_file = tracing_appender::rolling::daily(&logs_dir, "app.log");
     let access_file = tracing_appender::rolling::daily(&logs_dir, "access.log");
 
-    // 异步写入（高并发）
     let (app_nb, app_guard) = tracing_appender::non_blocking::NonBlockingBuilder::default()
         .buffered_lines_limit(50_000)
-        .lossy(true) // 极端高并发下允许丢日志，吞吐最高
+        .lossy(true)
         .finish(app_file);
 
     let (access_nb, access_guard) = tracing_appender::non_blocking::NonBlockingBuilder::default()
@@ -35,6 +34,7 @@ pub fn init_logging(logs_dir: impl Into<PathBuf>, retention_days: u64) -> Result
         .with_writer(app_nb)
         .with_filter(filter::filter_fn(|meta| meta.target() != "access"));
 
+    // access 日志（只写必要字段，减少 IO）
     let access_layer = tracing_subscriber::fmt::layer()
         .with_ansi(false)
         .with_target(false)
@@ -42,11 +42,9 @@ pub fn init_logging(logs_dir: impl Into<PathBuf>, retention_days: u64) -> Result
         .with_writer(access_nb)
         .with_filter(filter::filter_fn(|meta| meta.target() == "access"));
 
-
     // 控制台（开发用）
     let console_filter =
         tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into());
-
     let console_layer = tracing_subscriber::fmt::layer().with_filter(console_filter);
 
     tracing_subscriber::registry()
@@ -55,7 +53,7 @@ pub fn init_logging(logs_dir: impl Into<PathBuf>, retention_days: u64) -> Result
         .with(access_layer)
         .init();
 
-    spawn_retention_cleanup(logs_dir, retention_days);
+    spawn_retention_cleanup(logs_dir.clone(), retention_days);
 
     Ok(LoggingGuard {
         _app_guard: app_guard,
@@ -64,37 +62,40 @@ pub fn init_logging(logs_dir: impl Into<PathBuf>, retention_days: u64) -> Result
 }
 
 fn spawn_retention_cleanup(logs_dir: PathBuf, retention_days: u64) {
-    // 每 6 小时执行一次
     let interval = Duration::from_secs(6 * 3600);
 
-    tokio::spawn(async move {
-        loop {
-            if let Err(e) = cleanup_old_logs(&logs_dir, retention_days) {
-                tracing::warn!(
-                    error = ?e,
-                    "failed to cleanup old log files"
-                );
+    // 优先用 tokio runtime；没有就退化到 std::thread，避免 panic
+    if let Ok(handle) = tokio::runtime::Handle::try_current() {
+        handle.spawn(async move {
+            loop {
+                if let Err(e) = cleanup_old_logs(&logs_dir, retention_days) {
+                    tracing::warn!(error = ?e, "failed to cleanup old log files");
+                }
+                tokio::time::sleep(interval).await;
             }
-            tokio::time::sleep(interval).await;
-        }
-    });
+        });
+    } else {
+        std::thread::spawn(move || loop {
+            if let Err(e) = cleanup_old_logs(&logs_dir, retention_days) {
+                tracing::warn!(error = ?e, "failed to cleanup old log files");
+            }
+            std::thread::sleep(interval);
+        });
+    }
 }
 
-fn cleanup_old_logs(dir: &PathBuf, retention_days: u64) -> std::io::Result<()> {
+fn cleanup_old_logs(dir: &Path, retention_days: u64) -> std::io::Result<()> {
     let now = std::time::SystemTime::now();
-    let keep = Duration::from_secs(retention_days * 24 * 3600);
+    let keep = Duration::from_secs(retention_days.saturating_mul(24 * 3600));
 
     for entry in std::fs::read_dir(dir)? {
         let entry = entry?;
         let path = entry.path();
-
         if !path.is_file() {
             continue;
         }
 
         let name = path.file_name().and_then(|s| s.to_str()).unwrap_or("");
-
-        // 只清理我们生成的日志文件
         if !(name.starts_with("app.log") || name.starts_with("access.log")) {
             continue;
         }

@@ -21,6 +21,9 @@ app更新后台服务，用于APP更新。
 ## [diesel](https://diesel.rs/) 命令
 
 ```
+///安装diesel_cli postgres
+cargo install diesel_cli --no-default-features --features "postgres"
+
 //创建数据库
 diesel setup
 
