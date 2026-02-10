@@ -1,9 +1,8 @@
 use crate::model::jwt::{AccessTokenClaims, RefreshTokenClaims, RefreshTokenResp, TokenType, JWT_CONFIG};
-use chrono::{Duration, Utc};
+use chrono::{Duration, Local};
 use jsonwebtoken::{
     decode, encode, errors::ErrorKind, DecodingKey, EncodingKey, Header, Validation,
 };
-use time::OffsetDateTime;
 // JWT工具函数
 
 //创建访问令牌
@@ -11,7 +10,7 @@ pub fn generate_access_token(
     user_id: &str,
     user_name: &str,
 ) -> Result<String, jsonwebtoken::errors::Error> {
-    let now = Utc::now();
+    let now = Local::now().naive_local();
     let expires_at = now + Duration::seconds(JWT_CONFIG.access_expires_in);
 
     let claims = AccessTokenClaims {
@@ -34,7 +33,7 @@ pub fn generate_refresh_token(
     user_id: &str,
     user_name: &str,
 ) -> Result<String, jsonwebtoken::errors::Error> {
-    let now = Utc::now();
+    let now = Local::now().naive_local();
     let expires_at = now + Duration::seconds(JWT_CONFIG.refresh_expires_in);
 
     let claims = RefreshTokenClaims {
@@ -91,7 +90,7 @@ pub fn verify_refresh_token(
     )?;
 
     //验证刷新token是否过期
-    let current_timestamp = OffsetDateTime::now_utc().unix_timestamp();
+    let current_timestamp = Local::now().naive_local().timestamp();
     if token_data.claims.exp < current_timestamp {
         return Err(jsonwebtoken::errors::Error::from(ErrorKind::InvalidToken));
     }

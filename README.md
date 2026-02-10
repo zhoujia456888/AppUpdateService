@@ -16,7 +16,7 @@ app更新后台服务，用于APP更新。
 
 ## 致谢
 
-[Salvo](https://github.com/salvo-rs/salvo) -- 风驰电掣的 Rust Web 框架
+[Salvo](https://github.com/salvo-rs/salvo)  [文档](https://salvo.rs/zh-CN/) -- 风驰电掣的 Rust Web 框架
 
 ## [diesel](https://diesel.rs/) 命令
 

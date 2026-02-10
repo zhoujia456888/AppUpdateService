@@ -1,16 +1,17 @@
 use crate::api::users::auth_token;
 use crate::model::app_channel::{
     AppChannel, CreateAppChannelReq, CreateAppChannelResp, DeleteAppChannelReq,
-    DeleteAppChannelResp, GetAppChannelListResp, UpdateAppChannelReq, UpdateAppChannelResp,
+    DeleteAppChannelResp, GetAppChannelListReq, GetAppChannelListResp, UpdateAppChannelReq,
+    UpdateAppChannelResp,
 };
 use crate::model::body::parse_json_body;
 use crate::model::error::{ApiOut, AppError};
 use crate::model::users::User;
 use crate::schema::*;
 use crate::utils::database_utils::connect_database;
-use chrono::{Local, Utc};
-use diesel::RunQueryDsl;
+use chrono::Local;
 use diesel::prelude::*;
+use diesel::RunQueryDsl;
 use salvo::prelude::*;
 use salvo_oapi::endpoint;
 use uuid::Uuid;
@@ -29,6 +30,10 @@ pub async fn create_app_channel(
     let mut conn = connect_database(depot);
 
     let current_user_id = depot.get::<User>("user").expect("未找到用户。").id;
+
+    if app_channel_create.channel_name.is_empty() {
+        return ApiOut::err(AppError::BadRequest("渠道名称不能为空".to_string()));
+    }
 
     //检查渠道是否存在
     let existing_app_channel = app_channel::table
@@ -73,8 +78,17 @@ pub async fn create_app_channel(
     tags("app_channel"),
     summary = "获取渠道列表",
     description = "获取渠道列表"
+,request_body = GetAppChannelListReq
 )]
-pub async fn get_app_channel_list(depot: &mut Depot) -> ApiOut<Vec<GetAppChannelListResp>> {
+pub async fn get_app_channel_list(
+    depot: &mut Depot,
+    req: &mut Request,
+) -> ApiOut<Vec<GetAppChannelListResp>> {
+    let get_app_channel_list_req = match parse_json_body::<GetAppChannelListReq>(req).await {
+        Ok(v) => v,
+        Err(e) => return ApiOut::err(e),
+    };
+
     let user_id = depot.get::<User>("user").expect("未找到用户。").id;
 
     let mut conn = connect_database(depot);
@@ -82,6 +96,9 @@ pub async fn get_app_channel_list(depot: &mut Depot) -> ApiOut<Vec<GetAppChannel
     let all_app_channel = app_channel::table
         .filter(app_channel::create_user_id.eq(&user_id))
         .filter(app_channel::is_delete.eq(false))
+        .order(app_channel::create_time.desc())
+        .limit(get_app_channel_list_req.page_size)
+        .offset(get_app_channel_list_req.page_index * get_app_channel_list_req.page_size)
         .load::<AppChannel>(&mut conn)
         .expect("获取当前用户的渠道数据失败");
 
@@ -91,6 +108,7 @@ pub async fn get_app_channel_list(depot: &mut Depot) -> ApiOut<Vec<GetAppChannel
             channel_id: channel.id,
             channel_name: channel.channel_name.to_string(),
             create_time: channel.create_time,
+            update_time: channel.update_time,
         })
         .collect();
 
@@ -113,10 +131,10 @@ pub async fn update_app_channel(
 
     let mut conn = connect_database(depot);
 
-    let result = diesel::update(app_channel::table.find(app_channel_req.id))
+    let result = diesel::update(app_channel::table.find(app_channel_req.channel_id))
         .set((
             app_channel::channel_name.eq(&app_channel_req.channel_name),
-            app_channel::update_time.eq(&Utc::now().naive_utc()),
+            app_channel::update_time.eq(&Local::now().naive_local()),
             app_channel::is_delete.eq(false),
         ))
         .execute(&mut conn);
@@ -125,11 +143,11 @@ pub async fn update_app_channel(
         Ok(affected_rows) => {
             if affected_rows == 0 {
                 ApiOut::err(AppError::NotFound(
-                    format!("渠道Id'{}' 未找到", app_channel_req.id).to_string(),
+                    format!("渠道Id'{}' 未找到", app_channel_req.channel_id).to_string(),
                 ))
             } else {
                 ApiOut::ok(UpdateAppChannelResp {
-                    id: app_channel_req.id,
+                    channel_id: app_channel_req.channel_id,
                     channel_name: app_channel_req.channel_name,
                     update_info: "更新渠道信息成功".to_string(),
                 })
@@ -157,7 +175,7 @@ pub async fn delete_app_channel(
 
     let mut conn = connect_database(depot);
 
-    let result = diesel::update(app_channel::table.find(app_channel_req.id))
+    let result = diesel::update(app_channel::table.find(app_channel_req.channel_id))
         .set((app_channel::is_delete.eq(&true),))
         .execute(&mut conn);
 
@@ -165,11 +183,11 @@ pub async fn delete_app_channel(
         Ok(affected_rows) => {
             if affected_rows == 0 {
                 ApiOut::err(AppError::NotFound(
-                    format!("渠道Id'{}' 未找到", app_channel_req.id).to_string(),
+                    format!("渠道Id'{}' 未找到", app_channel_req.channel_id).to_string(),
                 ))
             } else {
                 ApiOut::ok(DeleteAppChannelResp {
-                    id: app_channel_req.id,
+                    channel_id: app_channel_req.channel_id,
                     delete_info: format!("渠道'{}'删除成功", app_channel_req.channel_name),
                 })
             }
@@ -197,15 +215,15 @@ pub async fn completely_delete_app_channel(
     let mut conn = connect_database(depot);
 
     let affected =
-        diesel::delete(app_channel::table.filter(app_channel::id.eq(app_channel_req.id)))
+        diesel::delete(app_channel::table.filter(app_channel::id.eq(app_channel_req.channel_id)))
             .execute(&mut conn);
 
     match affected {
         Ok(0) => ApiOut::err(AppError::NotFound(
-            format!("渠道Id'{}' 未找到", app_channel_req.id).to_string(),
+            format!("渠道Id'{}' 未找到", app_channel_req.channel_id).to_string(),
         )),
         Ok(_) => ApiOut::ok(DeleteAppChannelResp {
-            id: app_channel_req.id,
+            channel_id: app_channel_req.channel_id,
             delete_info: format!("渠道'{}'删除成功", app_channel_req.channel_name),
         }),
         Err(e) => ApiOut::err(AppError::Internal(

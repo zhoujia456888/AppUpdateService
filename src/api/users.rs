@@ -16,11 +16,11 @@ use crate::utils::password_utils::{hash_password, verify_password};
 use chrono::Local;
 use diesel::prelude::*;
 use diesel::r2d2::{ConnectionManager, PooledConnection};
+use log::info;
 use moka::future::Cache;
 use salvo::prelude::*;
 use salvo_oapi::endpoint;
 use std::sync::Arc;
-use log::{info};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
@@ -51,6 +51,14 @@ pub async fn register(depot: &mut Depot, req: &mut Request) -> ApiOut<RegisterRe
         Ok(v) => v,
         Err(e) => return ApiOut::err(e),
     };
+
+    if register_req.username.is_empty() {
+        return ApiOut::err(AppError::BadRequest("用户名称不能为空".to_string()));
+    }
+
+    if register_req.password.is_empty() {
+        return ApiOut::err(AppError::BadRequest("用户密码不能为空".to_string()));
+    }
 
     //验证密码是否一致
     if register_req.password != register_req.confirm_password {
@@ -316,7 +324,7 @@ pub fn auth_token(depot: &mut Depot, ctrl: &mut FlowCtrl) -> ApiOut<()> {
                 }
                 Some(token_data) => {
                     //验证Token是否过期
-                    let current_timestamp = OffsetDateTime::now_utc().unix_timestamp();
+                    let current_timestamp = Local::now().naive_local().timestamp();
                     if token_data.claims.exp < current_timestamp {
                         return ApiOut::err(AppError::FORBIDDEN("Token过期".to_string()));
                     }

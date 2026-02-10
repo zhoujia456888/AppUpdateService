@@ -43,6 +43,15 @@ pub struct CreateAppChannelResp {
     pub create_info: String,
 }
 
+///分页查询渠道列表返回参数
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct GetAppChannelListReq {
+    ///分页查询渠道列表大小
+    pub page_size: i64,
+    ///分页查询渠道列表索引
+    pub page_index: i64,
+}
+
 ///获取当前账户下的所有渠道返回参数
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct GetAppChannelListResp {
@@ -52,13 +61,15 @@ pub struct GetAppChannelListResp {
     pub channel_name: String,
     ///创建渠道时间
     pub create_time: NaiveDateTime,
+    ///更新渠道时间
+    pub update_time: NaiveDateTime,
 }
 
 ///更新渠道信息请求参数
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct UpdateAppChannelReq {
     ///渠道Id
-    pub id: Uuid,
+    pub channel_id: Uuid,
     /// 渠道名称
     pub channel_name: String,
 }
@@ -67,7 +78,7 @@ pub struct UpdateAppChannelReq {
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct UpdateAppChannelResp {
     ///渠道Id
-    pub id: Uuid,
+    pub channel_id: Uuid,
     /// 渠道名称
     pub channel_name: String,
     ///更新信息
@@ -78,7 +89,7 @@ pub struct UpdateAppChannelResp {
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct DeleteAppChannelReq {
     ///渠道Id
-    pub id: Uuid,
+    pub channel_id: Uuid,
     /// 渠道名称
     pub channel_name: String,
 }
@@ -86,7 +97,7 @@ pub struct DeleteAppChannelReq {
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct DeleteAppChannelResp {
     ///渠道Id
-    pub id: Uuid,
+    pub channel_id: Uuid,
     ///删除信息
     pub delete_info: String,
 }
