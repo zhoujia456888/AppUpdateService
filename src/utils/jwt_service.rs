@@ -16,8 +16,8 @@ pub fn generate_access_token(
     let claims = AccessTokenClaims {
         user_name: user_name.to_string(),
         user_id: user_id.to_string(),
-        exp: expires_at.timestamp(),
-        iat: now.timestamp(),
+        exp: expires_at.and_utc().timestamp(),
+        iat: now.and_utc().timestamp(),
         token_type: TokenType::Access,
     };
 
@@ -39,8 +39,8 @@ pub fn generate_refresh_token(
     let claims = RefreshTokenClaims {
         user_name: user_name.to_string(),
         user_id: user_id.to_string(),
-        exp: expires_at.timestamp(),
-        iat: now.timestamp(),
+        exp: expires_at.and_utc().timestamp(),
+        iat: now.and_utc().timestamp(),
         token_type: TokenType::Refresh,
     };
 
@@ -90,7 +90,7 @@ pub fn verify_refresh_token(
     )?;
 
     //验证刷新token是否过期
-    let current_timestamp = Local::now().naive_local().timestamp();
+    let current_timestamp = Local::now().naive_local().and_utc().timestamp();
     if token_data.claims.exp < current_timestamp {
         return Err(jsonwebtoken::errors::Error::from(ErrorKind::InvalidToken));
     }

@@ -1,6 +1,6 @@
 use crate::api::app_channel::app_channel_router;
 use crate::api::ping::ping_router;
-use crate::api::users::users_router;
+use crate::api::users::{auth_token, user_router_not_auth, users_router};
 use crate::db::establish_connection_pool;
 use crate::middleware::access_log::AccessLog;
 use crate::model::jwt::{AccessTokenClaims, get_jwt_secret_key};
@@ -37,10 +37,17 @@ pub async fn run() {
         .hoop(AccessLog {})
         .hoop(affix_state::inject(pool).inject(Arc::new(captcha_cache)));
 
-    //添加接口路由配置
+    //添加不需要token的接口
     let router = router.push(
         Router::with_path("api")
             .push(ping_router())
+            .push(user_router_not_auth()),
+    );
+
+    //添加需要token的接口路由配置
+    let router = router.push(
+        Router::with_path("api")
+            .hoop(auth_token)
             .push(users_router())
             .push(app_channel_router()),
     );

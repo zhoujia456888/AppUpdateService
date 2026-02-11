@@ -21,7 +21,6 @@ use moka::future::Cache;
 use salvo::prelude::*;
 use salvo_oapi::endpoint;
 use std::sync::Arc;
-use time::OffsetDateTime;
 use uuid::Uuid;
 
 #[endpoint(
@@ -324,7 +323,7 @@ pub fn auth_token(depot: &mut Depot, ctrl: &mut FlowCtrl) -> ApiOut<()> {
                 }
                 Some(token_data) => {
                     //验证Token是否过期
-                    let current_timestamp = Local::now().naive_local().timestamp();
+                    let current_timestamp = Local::now().naive_local().and_utc().timestamp();
                     if token_data.claims.exp < current_timestamp {
                         return ApiOut::err(AppError::FORBIDDEN("Token过期".to_string()));
                     }
@@ -446,15 +445,16 @@ async fn validate_captcha(
     Ok(())
 }
 
-pub fn users_router() -> Router {
+//不需要token的路由
+pub fn user_router_not_auth() -> Router {
     Router::with_path("users")
         .push(Router::with_path("get_auth_captcha").post(get_auth_captcha))
         .push(Router::with_path("register").post(register))
         .push(Router::with_path("login").post(login))
-        .push(
-            Router::with_path("get_users_info")
-                .hoop(auth_token)
-                .post(get_users_info),
-        )
         .push(Router::with_path("refresh_token").post(refresh_token))
+}
+
+//需要token的路由
+pub fn users_router() -> Router {
+    Router::with_path("users").push(Router::with_path("get_users_info").post(get_users_info))
 }

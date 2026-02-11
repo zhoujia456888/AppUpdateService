@@ -1,23 +1,17 @@
-use crate::api::users::auth_token;
-use crate::model::app_channel::{
-    AppChannel, CreateAppChannelReq, CreateAppChannelResp, DeleteAppChannelReq,
-    DeleteAppChannelResp, GetAppChannelListReq, GetAppChannelListResp, UpdateAppChannelReq,
-    UpdateAppChannelResp,
-};
+use crate::model::app_channel::{AppChannel, CreateAppChannelReq, CreateAppChannelResp, DeleteAppChannelReq, DeleteAppChannelResp, GetAppChannelListReq, GetAppChannelListResp, GetAppChannelListRespItem, SearchAppChannelReq, SearchAppChannelResp, UpdateAppChannelReq, UpdateAppChannelResp};
 use crate::model::body::parse_json_body;
 use crate::model::error::{ApiOut, AppError};
 use crate::model::users::User;
 use crate::schema::*;
 use crate::utils::database_utils::connect_database;
 use chrono::Local;
-use diesel::prelude::*;
 use diesel::RunQueryDsl;
+use diesel::prelude::*;
 use salvo::prelude::*;
 use salvo_oapi::endpoint;
 use uuid::Uuid;
 
-#[endpoint(tags("app_channel"), summary = "创建渠道", description = "创建渠道",request_body = CreateAppChannelReq
-)]
+#[endpoint(tags("app_channel"), summary = "创建渠道", description = "创建渠道",request_body = CreateAppChannelReq)]
 pub async fn create_app_channel(
     depot: &mut Depot,
     req: &mut Request,
@@ -74,16 +68,11 @@ pub async fn create_app_channel(
     })
 }
 
-#[endpoint(
-    tags("app_channel"),
-    summary = "获取渠道列表",
-    description = "获取渠道列表"
-,request_body = GetAppChannelListReq
-)]
-pub async fn get_app_channel_list(
+#[endpoint(tags("app_channel"),summary = "根据分页获取渠道列表",description = "根据分页获取渠道列表",request_body = GetAppChannelListReq)]
+pub async fn get_app_channel_list_by_page(
     depot: &mut Depot,
     req: &mut Request,
-) -> ApiOut<Vec<GetAppChannelListResp>> {
+) -> ApiOut<GetAppChannelListResp> {
     let get_app_channel_list_req = match parse_json_body::<GetAppChannelListReq>(req).await {
         Ok(v) => v,
         Err(e) => return ApiOut::err(e),
@@ -92,7 +81,23 @@ pub async fn get_app_channel_list(
     let user_id = depot.get::<User>("user").expect("未找到用户。").id;
 
     let mut conn = connect_database(depot);
+    //检查分页参数是否合法
+    if get_app_channel_list_req.page_size <= 0 || get_app_channel_list_req.page_index < 0 {
+        return ApiOut::err(AppError::BadRequest(
+            "分页参数错误，page_size必须大于0，page_index必须大于等于0".to_string(),
+        ));
+    }
 
+    let total_channel_count = app_channel::table
+        .filter(app_channel::create_user_id.eq(&user_id))
+        .filter(app_channel::is_delete.eq(false))
+        .load::<AppChannel>(&mut conn)
+        .expect("查询渠道总数失败");
+
+    let total_page = (total_channel_count.len() as i64 + get_app_channel_list_req.page_size - 1)
+        / get_app_channel_list_req.page_size;
+
+    //分页查询当前用户下的所有渠道
     let all_app_channel = app_channel::table
         .filter(app_channel::create_user_id.eq(&user_id))
         .filter(app_channel::is_delete.eq(false))
@@ -102,24 +107,93 @@ pub async fn get_app_channel_list(
         .load::<AppChannel>(&mut conn)
         .expect("获取当前用户的渠道数据失败");
 
-    let resp_list: Vec<GetAppChannelListResp> = all_app_channel
+    let app_channel_list = merge_channel_list_resp(all_app_channel);
+
+    let resp = GetAppChannelListResp {
+        channel_list: app_channel_list,
+        total_channel_count: total_channel_count.len() as i64,
+        total_page_count: total_page,
+    };
+
+    ApiOut::ok(resp)
+}
+
+///合并渠道列表响应
+fn merge_channel_list_resp(all_app_channel: Vec<AppChannel>) -> Vec<GetAppChannelListRespItem> {
+    let app_channel_list: Vec<GetAppChannelListRespItem> = all_app_channel
         .into_iter()
-        .map(|channel| GetAppChannelListResp {
+        .map(|channel| GetAppChannelListRespItem {
             channel_id: channel.id,
             channel_name: channel.channel_name.to_string(),
             create_time: channel.create_time,
             update_time: channel.update_time,
         })
         .collect();
-
-    ApiOut::ok(resp_list)
+    app_channel_list
 }
 
 #[endpoint(
     tags("app_channel"),
-    summary = "更新渠道信息",
-    description = "更新渠道信息",request_body = UpdateAppChannelReq
+    summary = "获取当前用户下所有渠道列表",
+    description = "获取当前用户下所有渠道列表"
 )]
+pub async fn get_app_channel_list(depot: &mut Depot) -> ApiOut<GetAppChannelListResp> {
+    let user_id = depot.get::<User>("user").expect("未找到用户。").id;
+    let mut conn = connect_database(depot);
+    //查询当前用户下的所有渠道
+    let all_app_channel = app_channel::table
+        .filter(app_channel::create_user_id.eq(&user_id))
+        .filter(app_channel::is_delete.eq(false))
+        .order(app_channel::create_time.desc())
+        .load::<AppChannel>(&mut conn)
+        .expect("获取当前用户的渠道数据失败");
+
+    let app_channel_list = merge_channel_list_resp(all_app_channel);
+    let list_len = app_channel_list.len() as i64;
+
+    let resp = GetAppChannelListResp {
+        channel_list: app_channel_list,
+        total_channel_count: list_len,
+        total_page_count: 1,
+    };
+
+    ApiOut::ok(resp)
+}
+
+#[endpoint(tags("app_channel"),summary="搜索渠道信息",description="根据渠道名称搜索渠道信息",request_body = SearchAppChannelReq)]
+pub async fn search_app_channel(
+    depot: &mut Depot,
+    req: &mut Request,
+) -> ApiOut<SearchAppChannelResp> {
+    let search_app_channel_req = match parse_json_body::<SearchAppChannelReq>(req).await {
+        Ok(v) => v,
+        Err(e) => return ApiOut::err(e),
+    };
+    let user_id = depot.get::<User>("user").expect("未找到用户。").id;
+
+    let mut conn = connect_database(depot);
+    //根据渠道名称查询渠道
+    let app_channel_list = app_channel::table
+        .filter(app_channel::create_user_id.eq(&user_id))
+        .filter(app_channel::is_delete.eq(false))
+        .filter(app_channel::channel_name.like(format!("%{}%", search_app_channel_req.channel_name)))
+        .order(app_channel::create_time.desc())
+        .load::<AppChannel>(&mut conn)
+        .expect("根据渠道名称查询渠道数据失败");
+
+    let app_channel_list = merge_channel_list_resp(app_channel_list);
+    let list_len = app_channel_list.len() as i64;
+
+    let resp = SearchAppChannelResp {
+        channel_list: app_channel_list,
+        total_channel_count: list_len,
+        total_page_count: 1,
+    };
+
+    ApiOut::ok(resp)
+}
+
+#[endpoint(tags("app_channel"),summary = "更新渠道信息",description = "更新渠道信息",request_body = UpdateAppChannelReq)]
 pub async fn update_app_channel(
     depot: &mut Depot,
     req: &mut Request,
@@ -159,11 +233,7 @@ pub async fn update_app_channel(
     }
 }
 
-#[endpoint(
-    tags("app_channel"),
-    summary = "删除渠道",
-    description = "删除渠道",request_body = DeleteAppChannelReq
-)]
+#[endpoint(tags("app_channel"),summary = "删除渠道",description = "删除渠道",request_body = DeleteAppChannelReq)]
 pub async fn delete_app_channel(
     depot: &mut Depot,
     req: &mut Request,
@@ -198,11 +268,7 @@ pub async fn delete_app_channel(
     }
 }
 
-#[endpoint(
-    tags("app_channel"),
-    summary = "完全删除渠道",
-    description = "完全删除渠道",request_body = DeleteAppChannelReq
-)]
+#[endpoint(tags("app_channel"),summary = "完全删除渠道",description = "完全删除渠道",request_body = DeleteAppChannelReq)]
 pub async fn completely_delete_app_channel(
     depot: &mut Depot,
     req: &mut Request,
@@ -234,29 +300,12 @@ pub async fn completely_delete_app_channel(
 
 pub fn app_channel_router() -> Router {
     Router::with_path("app_channel")
+        .push(Router::with_path("create_app_channel").post(create_app_channel))
+        .push(Router::with_path("get_app_channel_list_by_page").post(get_app_channel_list_by_page))
+        .push(Router::with_path("get_all_app_channel_list").post(get_app_channel_list))
+        .push(Router::with_path("update_app_channel").post(update_app_channel))
+        .push(Router::with_path("delete_app_channel").post(delete_app_channel))
         .push(
-            Router::with_path("create_app_channel")
-                .hoop(auth_token)
-                .post(create_app_channel),
-        )
-        .push(
-            Router::with_path("get_app_channel_list")
-                .hoop(auth_token)
-                .post(get_app_channel_list),
-        )
-        .push(
-            Router::with_path("update_app_channel")
-                .hoop(auth_token)
-                .post(update_app_channel),
-        )
-        .push(
-            Router::with_path("delete_app_channel")
-                .hoop(auth_token)
-                .post(delete_app_channel),
-        )
-        .push(
-            Router::with_path("completely_delete_app_channel")
-                .hoop(auth_token)
-                .post(completely_delete_app_channel),
+            Router::with_path("completely_delete_app_channel").post(completely_delete_app_channel),
         )
 }

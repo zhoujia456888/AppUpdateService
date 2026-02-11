@@ -55,6 +55,16 @@ pub struct GetAppChannelListReq {
 ///获取当前账户下的所有渠道返回参数
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct GetAppChannelListResp {
+    pub channel_list: Vec<GetAppChannelListRespItem>,
+    ///渠道总数
+    pub total_channel_count: i64,
+    ///总共页数
+    pub total_page_count: i64,
+}
+
+///分页查询渠道列表返回参数
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct GetAppChannelListRespItem {
     ///渠道Id
     pub channel_id: Uuid,
     ///渠道名称
@@ -64,6 +74,24 @@ pub struct GetAppChannelListResp {
     ///更新渠道时间
     pub update_time: NaiveDateTime,
 }
+
+///搜索渠道信息请求参数
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct SearchAppChannelReq {
+    ///渠道Id
+    pub channel_id: Uuid,
+    ///渠道名称
+    pub channel_name: String,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct SearchAppChannelResp {
+    pub channel_list: Vec<GetAppChannelListRespItem>,
+    ///渠道总数
+    pub total_channel_count: i64,
+    ///总共页数
+    pub total_page_count: i64,
+}
+///搜索渠道信息返回参数
 
 ///更新渠道信息请求参数
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
