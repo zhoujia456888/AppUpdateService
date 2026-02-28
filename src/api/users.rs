@@ -1,7 +1,8 @@
 use crate::model::body::parse_json_body;
-use crate::model::error::{ApiOut, AppError};
+use crate::model::error::{ApiOut, AppError, NoData};
 use crate::model::jwt::{AccessTokenClaims, RefreshTokenReq, TokenResp};
 use crate::model::response::ApiResponse;
+use salvo::http::StatusCode;
 use crate::model::users::{
     CaptchaResp, LoginReq, LoginResp, RegisterReq, RegisterResp, User, UserInfoResp,
 };
@@ -305,13 +306,22 @@ fn update_database_token(
 }
 
 //验证Token
-#[endpoint(tags("Users"), security((
-    "Authorization" = [])), summary = "验证Token", description = "验证Token")]
-pub fn auth_token(depot: &mut Depot, ctrl: &mut FlowCtrl) -> ApiOut<()> {
+#[handler]
+pub async fn auth_token(depot: &mut Depot, res: &mut Response, ctrl: &mut FlowCtrl) {
     let auth_state = depot.jwt_auth_state();
     let token_data = depot.jwt_auth_data::<AccessTokenClaims>().cloned();
     let auth_error = depot.jwt_auth_error();
     let auth_token_owned = depot.jwt_auth_token().map(|s| s.to_string());
+
+    // 辅助函数：返回统一格式的错误响应
+    let render_error = |res: &mut Response, code: StatusCode, msg: String| {
+        res.status_code(code);
+        res.render(Json(ApiResponse::<NoData> {
+            data: None,
+            code: code.as_u16(),
+            msg,
+        }));
+    };
 
     match auth_state {
         JwtAuthState::Authorized => {
@@ -319,13 +329,15 @@ pub fn auth_token(depot: &mut Depot, ctrl: &mut FlowCtrl) -> ApiOut<()> {
             match token_data {
                 None => {
                     ctrl.skip_rest();
-                    ApiOut::err(AppError::UnAuthorized("Token数据未找到!".to_string()))
+                    render_error(res, StatusCode::UNAUTHORIZED, "Token数据未找到!".to_string());
                 }
                 Some(token_data) => {
                     //验证Token是否过期
                     let current_timestamp = Local::now().naive_local().and_utc().timestamp();
                     if token_data.claims.exp < current_timestamp {
-                        return ApiOut::err(AppError::FORBIDDEN("Token过期".to_string()));
+                        ctrl.skip_rest();
+                        render_error(res, StatusCode::FORBIDDEN, "Token过期".to_string());
+                        return;
                     }
 
                     //Token 有效 验证用户有效性
@@ -335,10 +347,8 @@ pub fn auth_token(depot: &mut Depot, ctrl: &mut FlowCtrl) -> ApiOut<()> {
                         Ok(uuid) => uuid,
                         Err(e) => {
                             ctrl.skip_rest();
-                            return ApiOut::err(AppError::UnAuthorized(format!(
-                                "无效的用户ID格式: {}",
-                                e
-                            )));
+                            render_error(res, StatusCode::UNAUTHORIZED, format!("无效的用户ID格式: {}", e));
+                            return;
                         }
                     };
 
@@ -361,51 +371,39 @@ pub fn auth_token(depot: &mut Depot, ctrl: &mut FlowCtrl) -> ApiOut<()> {
                                 Ok(Some(_)) => {
                                     //验证通过则插入用户信息
                                     depot.insert("user", user);
-                                    //验证通过则插入验证完成
-                                    ApiOut::Ok(ApiResponse {
-                                        data: None,
-                                        code: 0,
-                                        msg: "".to_string(),
-                                    })
+                                    //验证通过，继续执行后续handler，不返回任何内容
                                 }
-                                Ok(None) => ApiOut::err(AppError::UnAuthorized(
-                                    "数据库Token不一致！".to_string(),
-                                )),
-                                Err(e) => ApiOut::err(AppError::UnAuthorized(format!(
-                                    "数据库查询错误: {}",
-                                    e
-                                ))),
+                                Ok(None) => {
+                                    ctrl.skip_rest();
+                                    render_error(res, StatusCode::UNAUTHORIZED, "数据库Token不一致！".to_string());
+                                }
+                                Err(e) => {
+                                    ctrl.skip_rest();
+                                    render_error(res, StatusCode::UNAUTHORIZED, format!("数据库查询错误: {}", e));
+                                }
                             }
                         } else {
-                            ApiOut::err(AppError::UnAuthorized(format!(
-                                "用户'{}'未找到!)",
-                                token_data.claims.user_name
-                            )))
+                            ctrl.skip_rest();
+                            render_error(res, StatusCode::UNAUTHORIZED, format!("用户'{}'未找到!)", token_data.claims.user_name));
                         }
                     } else {
                         ctrl.skip_rest();
-                        ApiOut::err(AppError::UnAuthorized(format!(
-                            "用户'{}'未找到!)",
-                            token_data.claims.user_name
-                        )))
+                        render_error(res, StatusCode::UNAUTHORIZED, format!("用户'{}'未找到!)", token_data.claims.user_name));
                     }
                 }
             }
         }
         JwtAuthState::Unauthorized => {
             ctrl.skip_rest();
-            ApiOut::err(AppError::UnAuthorized(
-                "未找到Token，请检查Header".to_string(),
-            ))
+            render_error(res, StatusCode::UNAUTHORIZED, "未找到Token，请检查Header".to_string());
         }
         JwtAuthState::Forbidden => {
             ctrl.skip_rest();
-            match auth_error {
-                None => ApiOut::err(AppError::FORBIDDEN("Token报错为None".to_string())),
-                Some(jwt_error) => {
-                    ApiOut::err(AppError::FORBIDDEN(format!("Token无效,{}", jwt_error)))
-                }
-            }
+            let msg = match auth_error {
+                None => "Token报错为None".to_string(),
+                Some(jwt_error) => format!("Token无效,{}", jwt_error),
+            };
+            render_error(res, StatusCode::FORBIDDEN, msg);
         }
     }
 }

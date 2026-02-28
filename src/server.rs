@@ -14,6 +14,7 @@ use salvo_oapi::security::{Http, HttpAuthScheme};
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::info;
+use crate::api::app_manage::app_manage_router;
 
 pub async fn run() {
     //数据库
@@ -47,9 +48,11 @@ pub async fn run() {
     //添加需要token的接口路由配置
     let router = router.push(
         Router::with_path("api")
+            .hoop(auth_handler)  // JwtAuth 中间件放在这里
             .hoop(auth_token)
             .push(users_router())
-            .push(app_channel_router()),
+            .push(app_channel_router())
+            .push(app_manage_router()),
     );
 
     //打印路径用于调试
@@ -70,7 +73,7 @@ pub async fn run() {
         .unshift(doc.into_router("/api-doc/openapi.json"))
         .unshift(SwaggerUi::new("/api-doc/openapi.json").into_router("/swagger-ui"));
 
-    let service = Service::new(router).hoop(auth_handler);
+    let service = Service::new(router);
     let catcher = Catcher::default().hoop(json_error_catcher);
 
     let service = service.catcher(catcher);

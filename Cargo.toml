@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-salvo = { version = "0.89.0", features = ["logging", "oapi", "affix-state", "anyhow", "jwt-auth", "test", "cors", "catch-panic", "cache", "jwt-auth"] }
+salvo = { version = "0.89.0", features = ["logging", "oapi", "affix-state", "anyhow", "jwt-auth", "test", "cors", "catch-panic", "cache"] }
 salvo-oapi = "0.89.0"
 tokio = { version = "1.49.0", features = ["macros"] }
 tracing = "0.1.44"

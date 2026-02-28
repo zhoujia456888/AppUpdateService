@@ -44,15 +44,10 @@ where
 {
     async fn write(
         self,
-        req: &mut salvo::Request,
-        depot: &mut salvo::Depot,
-        res: &mut salvo::Response,
+        req: &mut Request,
+        depot: &mut Depot,
+        res: &mut Response,
     ) {
-        if self.code == 0 {
-            // 什么都不做，不标记JSON_WRITTEN_KEY，让后续handler继续
-            return;
-        }
-
         // ✅ 标记：已经输出过我们自己的 JSON
         depot.insert(JSON_WRITTEN_KEY, true);
 
