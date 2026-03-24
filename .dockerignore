@@ -1,0 +1,7 @@
+.git
+.idea
+target
+logs
+.env
+app_manage
+README.md

@@ -1,32 +1,45 @@
-# 构建阶段
-FROM rust:slim AS build
+FROM rust:1.86-slim-bookworm AS builder
+
 WORKDIR /app
 
-# 复制依赖文件先构建依赖（利用缓存层）
+# Diesel + PostgreSQL 需要 libpq 头文件和 pkg-config 才能在构建阶段完成链接
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends pkg-config libpq-dev ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# 先复制清单文件，尽量利用 Docker 缓存
 COPY Cargo.toml Cargo.lock ./
-RUN mkdir src && \
-    echo 'fn main() { println!("Placeholder"); }' > src/main.rs && \
-    cargo build --release
+RUN mkdir src \
+    && printf "fn main() {}\n" > src/main.rs \
+    && cargo build --release
 
-# 复制实际源代码并构建应用
-COPY src ./src/
-RUN touch src/main.rs && \
-    cargo build --release
+# 复制真正源码后重新构建
+COPY src ./src
+COPY migrations ./migrations
+RUN cargo build --release --bin AppUpdateService
 
-# 运行阶段使用精简基础镜像
-FROM ubuntu:latest
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends ca-certificates && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
 
-# 创建非root用户运行应用
-RUN useradd -ms /bin/bash appuser
-USER appuser
+FROM ubuntu:24.04
+
 WORKDIR /app
 
-# 从构建阶段复制二进制文件
-COPY --from=build /app/target/release/your_app_name ./app
+# 运行期只保留必要系统库
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates libpq5 tzdata \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd --system --create-home --home-dir /app --shell /usr/sbin/nologin appuser \
+    && mkdir -p /app/logs /app/app_manage \
+    && chown -R appuser:appuser /app
 
-# 设置容器启动命令
-CMD ["./app"]
+COPY --from=builder /app/target/release/AppUpdateService /usr/local/bin/app-update-service
+COPY migrations ./migrations
+
+ENV RUST_LOG=info,access=info,salvo=info,hyper=warn,h2=warn
+
+VOLUME ["/app/logs", "/app/app_manage"]
+
+EXPOSE 5800
+
+USER appuser
+
+CMD ["/usr/local/bin/app-update-service"]
