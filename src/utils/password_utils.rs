@@ -1,6 +1,6 @@
-use argon2::{Argon2, PasswordHasher, PasswordVerifier};
-use password_hash::rand_core::OsRng;
-use password_hash::{PasswordHash, SaltString};
+use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
+use argon2::password_hash::rand_core::OsRng;
+use argon2::password_hash::SaltString;
 
 pub const SECRET_KEY: &str = "YOUR SECRET_KEY";
 

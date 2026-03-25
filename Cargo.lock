@@ -16,7 +16,7 @@ dependencies = [
  "log",
  "moka",
  "once_cell",
- "password-hash",
+ "password-hash 0.6.0",
  "salvo",
  "salvo-oapi",
  "serde",
@@ -191,7 +191,7 @@ dependencies = [
  "base64ct",
  "blake2",
  "cpufeatures",
- "password-hash",
+ "password-hash 0.5.0",
 ]
 
 [[package]]
@@ -521,9 +521,9 @@ checksum = "b35204fbdc0b3f4446b89fc1ac2cf84a8a68971995d0bf2e925ec7cd960f9cb3"
 
 [[package]]
 name = "captcha-rs"
-version = "0.3.0"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f6b33681a8567fbb932d0e55194b73bccb5590df14b081201da64950555d5e10"
+checksum = "ea23e9ba29e482e553d48391849195b95f055ffb059f785a28c9c5a046844223"
 dependencies = [
  "ab_glyph",
  "base64",
@@ -2714,6 +2714,12 @@ dependencies = [
  "rand_core 0.6.4",
  "subtle",
 ]
+
+[[package]]
+name = "password-hash"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ccbd25f71dd5249dba9ed843d52500c8757a25511560d01a94f4abf56b52a1d5"
 
 [[package]]
 name = "paste"
