@@ -116,7 +116,6 @@ where
             StatusCode::NOT_FOUND,
             StatusCode::UNPROCESSABLE_ENTITY,
             StatusCode::INTERNAL_SERVER_ERROR,
-
         ] {
             op = op.add_response(sc.as_str(), err_ref.clone());
         }

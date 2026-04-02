@@ -1,7 +1,9 @@
-use crate::model::jwt::{AccessTokenClaims, RefreshTokenClaims, RefreshTokenResp, TokenType, JWT_CONFIG};
+use crate::model::jwt::{
+    AccessTokenClaims, JWT_CONFIG, RefreshTokenClaims, RefreshTokenResp, TokenType,
+};
 use chrono::{Duration, Local};
 use jsonwebtoken::{
-    decode, encode, errors::ErrorKind, DecodingKey, EncodingKey, Header, Validation,
+    DecodingKey, EncodingKey, Header, Validation, decode, encode, errors::ErrorKind,
 };
 // JWT工具函数
 
@@ -56,11 +58,17 @@ pub fn refresh_access_token(
 ) -> Result<RefreshTokenResp, jsonwebtoken::errors::Error> {
     let refresh_token_claims = verify_refresh_token(refresh_token)?;
 
-    let new_access_token = generate_access_token(&refresh_token_claims.user_id, &refresh_token_claims.user_name)?;
-    let new_refresh_token = generate_refresh_token(&refresh_token_claims.user_id, &refresh_token_claims.user_name)?;
+    let new_access_token = generate_access_token(
+        &refresh_token_claims.user_id,
+        &refresh_token_claims.user_name,
+    )?;
+    let new_refresh_token = generate_refresh_token(
+        &refresh_token_claims.user_id,
+        &refresh_token_claims.user_name,
+    )?;
 
     Ok(RefreshTokenResp {
-        claims:refresh_token_claims,
+        claims: refresh_token_claims,
         access_token: new_access_token,
         refresh_token: new_refresh_token,
     })

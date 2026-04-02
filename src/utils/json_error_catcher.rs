@@ -1,8 +1,8 @@
-use salvo::{handler, Depot, FlowCtrl, Response};
-use salvo::http::StatusCode;
-use salvo::prelude::Json;
 use crate::model::error::NoData;
 use crate::model::response::{ApiResponse, JSON_WRITTEN_KEY};
+use salvo::http::StatusCode;
+use salvo::prelude::Json;
+use salvo::{Depot, FlowCtrl, Response, handler};
 
 #[handler]
 pub async fn json_error_catcher(depot: &mut Depot, res: &mut Response, ctrl: &mut FlowCtrl) {

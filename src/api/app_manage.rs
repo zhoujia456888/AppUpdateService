@@ -1,13 +1,19 @@
 use crate::model::app_manage::UploadAppFileResp;
 use crate::model::error::{ApiOut, AppError};
-use salvo::prelude::*;
+use crate::utils::apk_utils::extract_apk_metadata;
+use chrono::Local;
 use salvo::oapi::extract::FormFile;
+use salvo::prelude::*;
 use std::path::Path;
+
+const APP_MANAGE_DIR: &str = "app_manage";
+const APK_UPLOAD_DIR: &str = "app_manage/apk";
+const PUBLIC_APP_MANAGE_PREFIX: &str = "/api/public/app_manage";
 
 #[endpoint(
     tags("app_manage"),
     summary = "上传APP文件",
-    description = "上传APP文件",
+    description = "上传APP文件"
 )]
 pub async fn upload_app_file(req: &mut Request) -> ApiOut<UploadAppFileResp> {
     println!("进入 upload_app_file 函数");
@@ -46,7 +52,8 @@ pub async fn upload_app_file(req: &mut Request) -> ApiOut<UploadAppFileResp> {
 
     let Some(file_part) = file_part else {
         return ApiOut::err(AppError::BadRequest(
-            "未找到上传文件字段，请使用 multipart/form-data 并传入 file（兼容 upload_file/app_file）".to_string(),
+            "未找到上传文件字段，请使用 multipart/form-data 并传入 file（兼容 upload_file/app_file）"
+                .to_string(),
         ));
     };
 
@@ -57,19 +64,43 @@ pub async fn upload_app_file(req: &mut Request) -> ApiOut<UploadAppFileResp> {
         .and_then(|s| s.to_str())
         .filter(|s| !s.is_empty())
         .unwrap_or("file.bin");
-    let dest = format!("app_manage/{}", filename);
+    let timestamp = Local::now().format("%Y%m%d%H%M%S%3f").to_string();
+    let stamped_filename = build_timestamped_filename(filename, &timestamp);
+    let dest = format!("{}/{}", APK_UPLOAD_DIR, stamped_filename);
 
     println!("upload: {}", dest);
 
-    if let Err(e) = std::fs::create_dir_all("app_manage") {
+    if let Err(e) = std::fs::create_dir_all(APK_UPLOAD_DIR) {
         return ApiOut::err(AppError::Internal(format!("创建上传目录失败: {}", e)));
     }
 
     if let Err(e) = std::fs::copy(file.path(), &dest) {
         ApiOut::err(AppError::Internal(format!("文件上传失败: {}", e)))
     } else {
+        let apk_metadata = match extract_apk_metadata(
+            Path::new(&dest),
+            &stamped_filename,
+            Path::new(APP_MANAGE_DIR),
+        ) {
+            Ok(metadata) => metadata,
+            Err(e) => {
+                let _ = std::fs::remove_file(&dest);
+                return ApiOut::err(AppError::Unprocessable(format!("APK 解析失败: {}", e)));
+            }
+        };
+
         ApiOut::ok(UploadAppFileResp {
-            file_path: dest,
+            file_path: to_public_app_manage_file_url("apk", &dest),
+            apk_name: apk_metadata.apk_name,
+            app_name: apk_metadata.app_name,
+            package_name: apk_metadata.package_name,
+            app_icon_path: apk_metadata
+                .app_icon_path
+                .as_deref()
+                .map(|path| to_public_app_manage_file_url("icon", path)),
+            version_name: apk_metadata.version_name,
+            version_code: apk_metadata.version_code,
+            file_size: apk_metadata.file_size,
             upload_file_info: "文件上传成功！".to_string(),
         })
     }
@@ -77,4 +108,30 @@ pub async fn upload_app_file(req: &mut Request) -> ApiOut<UploadAppFileResp> {
 
 pub fn app_manage_router() -> Router {
     Router::with_path("app_manage").push(Router::with_path("upload_app_file").post(upload_app_file))
+}
+
+fn build_timestamped_filename(filename: &str, timestamp: &str) -> String {
+    let path = Path::new(filename);
+    let stem = path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or("file");
+    let extension = path.extension().and_then(|value| value.to_str());
+
+    match extension.filter(|value| !value.trim().is_empty()) {
+        Some(extension) => format!("{stem}_{timestamp}.{extension}"),
+        None => format!("{stem}_{timestamp}"),
+    }
+}
+
+fn to_public_app_manage_file_url(kind: &str, path: &str) -> String {
+    let normalized = path.replace('\\', "/");
+    let filename = normalized
+        .rsplit('/')
+        .next()
+        .unwrap_or(normalized.as_str())
+        .trim();
+
+    format!("{PUBLIC_APP_MANAGE_PREFIX}/{kind}?name={filename}")
 }

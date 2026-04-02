@@ -43,8 +43,6 @@ pub async fn resp_test(req: &mut Request) -> ApiOut<GetUserResp> {
     })
 }
 
-
-
 pub fn ping_router() -> Router {
     Router::with_path("ping")
         .push(Router::with_path("ping").get(ping))

@@ -30,7 +30,6 @@ pub fn get_auth_captcha() -> AuthCaptcha {
     }
 }
 
-
 //从内存中获取验证码缓存
 pub fn get_captcha_cache(
     depot: &mut Depot,

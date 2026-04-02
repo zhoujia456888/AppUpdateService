@@ -1,4 +1,8 @@
-use crate::model::app_channel::{AppChannel, CreateAppChannelReq, CreateAppChannelResp, DeleteAppChannelReq, DeleteAppChannelResp, GetAppChannelListReq, GetAppChannelListResp, GetAppChannelListRespItem, SearchAppChannelReq, SearchAppChannelResp, UpdateAppChannelReq, UpdateAppChannelResp};
+use crate::model::app_channel::{
+    AppChannel, CreateAppChannelReq, CreateAppChannelResp, DeleteAppChannelReq,
+    DeleteAppChannelResp, GetAppChannelListReq, GetAppChannelListResp, GetAppChannelListRespItem,
+    SearchAppChannelReq, SearchAppChannelResp, UpdateAppChannelReq, UpdateAppChannelResp,
+};
 use crate::model::body::parse_json_body;
 use crate::model::error::{ApiOut, AppError};
 use crate::model::users::User;
@@ -176,7 +180,9 @@ pub async fn search_app_channel(
     let app_channel_list = app_channel::table
         .filter(app_channel::create_user_id.eq(&user_id))
         .filter(app_channel::is_delete.eq(false))
-        .filter(app_channel::channel_name.like(format!("%{}%", search_app_channel_req.channel_name)))
+        .filter(
+            app_channel::channel_name.like(format!("%{}%", search_app_channel_req.channel_name)),
+        )
         .order(app_channel::create_time.desc())
         .load::<AppChannel>(&mut conn)
         .expect("根据渠道名称查询渠道数据失败");

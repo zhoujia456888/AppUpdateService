@@ -1,7 +1,10 @@
 use anyhow::Result;
-use std::{path::{Path, PathBuf}, time::Duration};
+use std::{
+    path::{Path, PathBuf},
+    time::Duration,
+};
 use tracing_subscriber::filter;
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, Layer};
+use tracing_subscriber::{Layer, layer::SubscriberExt, util::SubscriberInitExt};
 
 pub struct LoggingGuard {
     _app_guard: tracing_appender::non_blocking::WorkerGuard,
@@ -75,11 +78,13 @@ fn spawn_retention_cleanup(logs_dir: PathBuf, retention_days: u64) {
             }
         });
     } else {
-        std::thread::spawn(move || loop {
-            if let Err(e) = cleanup_old_logs(&logs_dir, retention_days) {
-                tracing::warn!(error = ?e, "failed to cleanup old log files");
+        std::thread::spawn(move || {
+            loop {
+                if let Err(e) = cleanup_old_logs(&logs_dir, retention_days) {
+                    tracing::warn!(error = ?e, "failed to cleanup old log files");
+                }
+                std::thread::sleep(interval);
             }
-            std::thread::sleep(interval);
         });
     }
 }

@@ -85,7 +85,7 @@ pub struct RefreshTokenReq {
 
 ///刷新Token返回参数
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct  RefreshTokenResp{
+pub struct RefreshTokenResp {
     ///刷新TokenClaims
     pub claims: RefreshTokenClaims,
     ///访问Token
@@ -96,7 +96,7 @@ pub struct  RefreshTokenResp{
 
 /// 获取或刷新Token 返回响应参数
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct TokenResp{
+pub struct TokenResp {
     ///访问Token
     pub access_token: String,
     ///刷新Token

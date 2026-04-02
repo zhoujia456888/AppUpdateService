@@ -1,6 +1,6 @@
+use crate::model::error::AppError;
 use serde::de::{DeserializeOwned, IntoDeserializer};
 use serde_json::Value;
-use crate::model::error::AppError;
 
 /// 解析 JSON body，并返回字段级错误信息（如：`id: invalid type... expected i64`）
 pub async fn parse_json_body<T>(req: &mut salvo::Request) -> Result<T, AppError>

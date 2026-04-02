@@ -42,12 +42,7 @@ impl<T> Writer for ApiResponse<T>
 where
     T: serde::Serialize + salvo::oapi::ToSchema + Send + Sync,
 {
-    async fn write(
-        self,
-        req: &mut Request,
-        depot: &mut Depot,
-        res: &mut Response,
-    ) {
+    async fn write(self, req: &mut Request, depot: &mut Depot, res: &mut Response) {
         // ✅ 标记：已经输出过我们自己的 JSON
         depot.insert(JSON_WRITTEN_KEY, true);
 

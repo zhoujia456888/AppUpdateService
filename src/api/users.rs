@@ -2,7 +2,6 @@ use crate::model::body::parse_json_body;
 use crate::model::error::{ApiOut, AppError, NoData};
 use crate::model::jwt::{AccessTokenClaims, RefreshTokenReq, TokenResp};
 use crate::model::response::ApiResponse;
-use salvo::http::StatusCode;
 use crate::model::users::{
     CaptchaResp, LoginReq, LoginResp, RegisterReq, RegisterResp, User, UserInfoResp,
 };
@@ -19,6 +18,7 @@ use diesel::prelude::*;
 use diesel::r2d2::{ConnectionManager, PooledConnection};
 use log::info;
 use moka::future::Cache;
+use salvo::http::StatusCode;
 use salvo::prelude::*;
 use salvo_oapi::endpoint;
 use std::sync::Arc;
@@ -329,7 +329,11 @@ pub async fn auth_token(depot: &mut Depot, res: &mut Response, ctrl: &mut FlowCt
             match token_data {
                 None => {
                     ctrl.skip_rest();
-                    render_error(res, StatusCode::UNAUTHORIZED, "Token数据未找到!".to_string());
+                    render_error(
+                        res,
+                        StatusCode::UNAUTHORIZED,
+                        "Token数据未找到!".to_string(),
+                    );
                 }
                 Some(token_data) => {
                     //验证Token是否过期
@@ -347,7 +351,11 @@ pub async fn auth_token(depot: &mut Depot, res: &mut Response, ctrl: &mut FlowCt
                         Ok(uuid) => uuid,
                         Err(e) => {
                             ctrl.skip_rest();
-                            render_error(res, StatusCode::UNAUTHORIZED, format!("无效的用户ID格式: {}", e));
+                            render_error(
+                                res,
+                                StatusCode::UNAUTHORIZED,
+                                format!("无效的用户ID格式: {}", e),
+                            );
                             return;
                         }
                     };
@@ -375,27 +383,47 @@ pub async fn auth_token(depot: &mut Depot, res: &mut Response, ctrl: &mut FlowCt
                                 }
                                 Ok(None) => {
                                     ctrl.skip_rest();
-                                    render_error(res, StatusCode::UNAUTHORIZED, "数据库Token不一致！".to_string());
+                                    render_error(
+                                        res,
+                                        StatusCode::UNAUTHORIZED,
+                                        "数据库Token不一致！".to_string(),
+                                    );
                                 }
                                 Err(e) => {
                                     ctrl.skip_rest();
-                                    render_error(res, StatusCode::UNAUTHORIZED, format!("数据库查询错误: {}", e));
+                                    render_error(
+                                        res,
+                                        StatusCode::UNAUTHORIZED,
+                                        format!("数据库查询错误: {}", e),
+                                    );
                                 }
                             }
                         } else {
                             ctrl.skip_rest();
-                            render_error(res, StatusCode::UNAUTHORIZED, format!("用户'{}'未找到!)", token_data.claims.user_name));
+                            render_error(
+                                res,
+                                StatusCode::UNAUTHORIZED,
+                                format!("用户'{}'未找到!)", token_data.claims.user_name),
+                            );
                         }
                     } else {
                         ctrl.skip_rest();
-                        render_error(res, StatusCode::UNAUTHORIZED, format!("用户'{}'未找到!)", token_data.claims.user_name));
+                        render_error(
+                            res,
+                            StatusCode::UNAUTHORIZED,
+                            format!("用户'{}'未找到!)", token_data.claims.user_name),
+                        );
                     }
                 }
             }
         }
         JwtAuthState::Unauthorized => {
             ctrl.skip_rest();
-            render_error(res, StatusCode::UNAUTHORIZED, "未找到Token，请检查Header".to_string());
+            render_error(
+                res,
+                StatusCode::UNAUTHORIZED,
+                "未找到Token，请检查Header".to_string(),
+            );
         }
         JwtAuthState::Forbidden => {
             ctrl.skip_rest();
