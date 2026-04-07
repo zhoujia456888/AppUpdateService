@@ -15,8 +15,8 @@ pub struct ZipEntry {
     /// Owned zip data
     input: Vec<u8>,
 
-    /// EOCD structure
-    eocd: EndOfCentralDirectory,
+    // /// EOCD structure
+    // eocd: EndOfCentralDirectory,
 
     /// Central directory structure
     central_directory: CentralDirectory,
@@ -70,7 +70,7 @@ impl ZipEntry {
 
         Ok(ZipEntry {
             input,
-            eocd,
+           // eocd,
             central_directory,
             local_headers,
         })

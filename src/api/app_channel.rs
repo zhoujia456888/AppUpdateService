@@ -61,15 +61,21 @@ pub async fn create_app_channel(
     };
 
     //插入数据到数据库
-    diesel::insert_into(app_channel::table)
+    match diesel::insert_into(app_channel::table)
         .values(&new_channel)
         .execute(&mut conn)
-        .expect("插入新渠道失败！");
-
-    ApiOut::ok(CreateAppChannelResp {
-        channel_name: app_channel_create.channel_name.to_string(),
-        create_info: format!("渠道'{}'创建成功！", app_channel_create.channel_name),
-    })
+    {
+        Ok(_) => ApiOut::ok(CreateAppChannelResp {
+            channel_name: app_channel_create.channel_name.to_string(),
+            create_info: format!("渠道'{}'创建成功！", app_channel_create.channel_name),
+        }),
+        Err(e) => {
+            return ApiOut::err(AppError::Internal(format!(
+                "创建渠道失败：{}",
+                e
+            )));
+        }
+    }
 }
 
 #[endpoint(tags("app_channel"),summary = "根据分页获取渠道列表",description = "根据分页获取渠道列表",request_body = GetAppChannelListReq)]

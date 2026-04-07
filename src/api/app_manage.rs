@@ -1,7 +1,14 @@
-use crate::model::app_manage::UploadAppFileResp;
+use crate::model::app_manage::{
+    AppManage, UploadAppFileCompleteReq, UploadAppFileCompleteResp, UploadAppFileResp,
+};
+use crate::model::body::parse_json_body;
 use crate::model::error::{ApiOut, AppError};
+use crate::model::users::User;
+use crate::schema::*;
 use crate::utils::apk_utils::extract_apk_metadata;
+use crate::utils::database_utils::connect_database;
 use chrono::Local;
+use diesel::RunQueryDsl;
 use salvo::oapi::extract::FormFile;
 use salvo::prelude::*;
 use std::path::Path;
@@ -91,7 +98,7 @@ pub async fn upload_app_file(req: &mut Request) -> ApiOut<UploadAppFileResp> {
 
         ApiOut::ok(UploadAppFileResp {
             file_path: to_public_app_manage_file_url("apk", &dest),
-            apk_name: apk_metadata.apk_name,
+            file_name: apk_metadata.file_name,
             app_name: apk_metadata.app_name,
             package_name: apk_metadata.package_name,
             app_icon_path: apk_metadata
@@ -103,6 +110,70 @@ pub async fn upload_app_file(req: &mut Request) -> ApiOut<UploadAppFileResp> {
             file_size: apk_metadata.file_size,
             upload_file_info: "文件上传成功！".to_string(),
         })
+    }
+}
+
+#[endpoint(tags("app_manage"), summary = "发布应用", description = "发布应用")]
+pub async fn upload_app_file_complete(
+    depot: &mut Depot,
+    req: &mut Request,
+) -> ApiOut<UploadAppFileCompleteResp> {
+    let get_upload_app_file_complete_req =
+        match parse_json_body::<UploadAppFileCompleteReq>(req).await {
+            Ok(v) => v,
+            Err(e) => return ApiOut::err(e),
+        };
+
+    if get_upload_app_file_complete_req.file_name.is_empty() {
+        return ApiOut::err(AppError::BadRequest("文件不能为空".to_string()));
+    }
+    if get_upload_app_file_complete_req.app_name.is_empty() {
+        return ApiOut::err(AppError::BadRequest("应用名称不能为空".to_string()));
+    }
+    if get_upload_app_file_complete_req.package_name.is_empty() {
+        return ApiOut::err(AppError::BadRequest("包名不能为空".to_string()));
+    }
+    if get_upload_app_file_complete_req.file_path.is_empty() {
+        return ApiOut::err(AppError::BadRequest("文件路径不能为空".to_string()));
+    }
+
+    let mut conn = connect_database(depot);
+    let current_user_id = depot.get::<User>("user").expect("未找到用户。").id;
+
+    let now = Local::now().naive_local();
+
+    let new_app = AppManage {
+        id: Uuid::new_v4(),
+        app_name: get_upload_app_file_complete_req.app_name.clone(),
+        app_download_url: get_upload_app_file_complete_req.file_path.clone(),
+        create_user_id: current_user_id,
+        create_time: now,
+        update_time: now,
+        is_delete: false,
+        file_path: get_upload_app_file_complete_req.file_path.clone(),
+        file_name: get_upload_app_file_complete_req.file_name.clone(),
+        package_name: get_upload_app_file_complete_req.package_name.clone(),
+        app_icon_path: get_upload_app_file_complete_req.app_icon_path.clone(),
+        version_name: get_upload_app_file_complete_req.version_name.clone(),
+        version_code: get_upload_app_file_complete_req.version_code.clone(),
+        file_size: get_upload_app_file_complete_req.file_size.clone(),
+        channel_name: get_upload_app_file_complete_req.channel_name.clone(),
+        channel_id: get_upload_app_file_complete_req.channel_id.clone(),
+        update_log: get_upload_app_file_complete_req.update_log.clone(),
+    };
+
+    match diesel::insert_into(app_manage::table)
+        .values(&new_app)
+        .execute(&mut conn)
+    {
+        Ok(_) => ApiOut::ok(UploadAppFileCompleteResp {
+            upload_app_complete_info: format!(
+                "应用'{}' (版本：{}) 发布成功！",
+                get_upload_app_file_complete_req.app_name,
+                get_upload_app_file_complete_req.version_name
+            ),
+        }),
+        Err(e) => ApiOut::err(AppError::Internal(format!("保存应用信息失败：{}", e))),
     }
 }
 

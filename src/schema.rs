@@ -15,13 +15,21 @@ diesel::table! {
     app_manage (id) {
         id -> Uuid,
         app_name -> Varchar,
-        app_version -> Varchar,
         app_download_url -> Varchar,
         create_user_id -> Uuid,
         channel_id -> Uuid,
         create_time -> Timestamp,
         update_time -> Timestamp,
         is_delete -> Bool,
+        file_path -> Varchar,
+        file_name -> Varchar,
+        package_name -> Varchar,
+        app_icon_path -> Varchar,
+        version_name -> Varchar,
+        version_code -> Varchar,
+        file_size -> BigInt,
+        channel_name -> Varchar,
+        update_log -> Varchar,
     }
 }
 

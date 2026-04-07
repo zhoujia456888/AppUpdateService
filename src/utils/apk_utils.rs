@@ -11,7 +11,7 @@ const DENSITY_ORDER: &[&str] = &[
 
 #[derive(Debug, Clone)]
 pub struct ApkMetadata {
-    pub apk_name: String,
+    pub file_name: String,
     pub app_name: String,
     pub package_name: String,
     pub app_icon_path: Option<String>,
@@ -22,7 +22,7 @@ pub struct ApkMetadata {
 
 pub fn extract_apk_metadata(
     apk_path: &Path,
-    apk_name: &str,
+    file_name: &str,
     upload_dir: &Path,
 ) -> Result<ApkMetadata> {
     let apk = Apk::new(apk_path).context("解析 APK 文件失败")?;
@@ -38,7 +38,7 @@ pub fn extract_apk_metadata(
     let app_name = apk
         .get_application_label()
         .filter(|value| !value.trim().is_empty())
-        .unwrap_or_else(|| fallback_app_name(apk_path, apk_name));
+        .unwrap_or_else(|| fallback_app_name(apk_path, file_name));
 
     let icon_resource = apk
         .get_application_icon()
@@ -47,7 +47,7 @@ pub fn extract_apk_metadata(
         .context("提取 APP 图标失败")?;
 
     Ok(ApkMetadata {
-        apk_name: apk_name.to_string(),
+        file_name: file_name.to_string(),
         app_name,
         package_name,
         app_icon_path,
