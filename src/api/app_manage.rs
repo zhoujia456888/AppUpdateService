@@ -12,6 +12,7 @@ use diesel::RunQueryDsl;
 use salvo::oapi::extract::FormFile;
 use salvo::prelude::*;
 use std::path::Path;
+use uuid::Uuid;
 
 const APP_MANAGE_DIR: &str = "app_manage";
 const APK_UPLOAD_DIR: &str = "app_manage/apk";
@@ -113,6 +114,34 @@ pub async fn upload_app_file(req: &mut Request) -> ApiOut<UploadAppFileResp> {
     }
 }
 
+//组装带时间格式的APP文件名称
+fn build_timestamped_filename(filename: &str, timestamp: &str) -> String {
+    let path = Path::new(filename);
+    let stem = path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or("file");
+    let extension = path.extension().and_then(|value| value.to_str());
+
+    match extension.filter(|value| !value.trim().is_empty()) {
+        Some(extension) => format!("{stem}_{timestamp}.{extension}"),
+        None => format!("{stem}_{timestamp}"),
+    }
+}
+
+// 组装公共APP管理文件URL
+fn to_public_app_manage_file_url(kind: &str, path: &str) -> String {
+    let normalized = path.replace('\\', "/");
+    let filename = normalized
+        .rsplit('/')
+        .next()
+        .unwrap_or(normalized.as_str())
+        .trim();
+
+    format!("{PUBLIC_APP_MANAGE_PREFIX}/{kind}?name={filename}")
+}
+
 #[endpoint(tags("app_manage"), summary = "发布应用", description = "发布应用")]
 pub async fn upload_app_file_complete(
     depot: &mut Depot,
@@ -178,31 +207,7 @@ pub async fn upload_app_file_complete(
 }
 
 pub fn app_manage_router() -> Router {
-    Router::with_path("app_manage").push(Router::with_path("upload_app_file").post(upload_app_file))
-}
-
-fn build_timestamped_filename(filename: &str, timestamp: &str) -> String {
-    let path = Path::new(filename);
-    let stem = path
-        .file_stem()
-        .and_then(|value| value.to_str())
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or("file");
-    let extension = path.extension().and_then(|value| value.to_str());
-
-    match extension.filter(|value| !value.trim().is_empty()) {
-        Some(extension) => format!("{stem}_{timestamp}.{extension}"),
-        None => format!("{stem}_{timestamp}"),
-    }
-}
-
-fn to_public_app_manage_file_url(kind: &str, path: &str) -> String {
-    let normalized = path.replace('\\', "/");
-    let filename = normalized
-        .rsplit('/')
-        .next()
-        .unwrap_or(normalized.as_str())
-        .trim();
-
-    format!("{PUBLIC_APP_MANAGE_PREFIX}/{kind}?name={filename}")
+    Router::with_path("app_manage")
+        .push(Router::with_path("upload_app_file").post(upload_app_file))
+        .push(Router::with_path("upload_app_file_complete").post(upload_app_file_complete))
 }

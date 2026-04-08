@@ -20,6 +20,7 @@ pub struct ApkMetadata {
     pub file_size: u64,
 }
 
+// 提取 APK 元数据
 pub fn extract_apk_metadata(
     apk_path: &Path,
     file_name: &str,
@@ -57,6 +58,7 @@ pub fn extract_apk_metadata(
     })
 }
 
+// 提取 APK 元数据失败时的回退 APP 名称
 fn fallback_app_name(apk_path: &Path, apk_name: &str) -> String {
     Path::new(apk_name)
         .file_stem()
@@ -73,6 +75,7 @@ fn fallback_app_name(apk_path: &Path, apk_name: &str) -> String {
         .unwrap_or_else(|| "unknown_app".to_string())
 }
 
+// 保存 APK 图标到指定目录
 fn save_icon_from_apk(
     apk: &Apk,
     icon_resource: Option<&str>,
@@ -114,6 +117,7 @@ fn save_icon_from_apk(
     Ok(Some(normalize_relative_path(&icon_path)))
 }
 
+// 解析 APK 图标资源
 fn resolve_icon_entry(apk: &Apk, resource: &str) -> Option<String> {
     let normalized = normalize_apk_entry(resource);
     if is_image_entry(&normalized) {
@@ -127,10 +131,12 @@ fn resolve_icon_entry(apk: &Apk, resource: &str) -> Option<String> {
     fallback_image_entry(apk, &normalized)
 }
 
+// 规范化 APK 资源路径
 fn normalize_apk_entry(resource: &str) -> String {
     resource.trim_start_matches('/').replace('\\', "/")
 }
 
+// 判断资源是否为图片类型
 fn is_image_entry(resource: &str) -> bool {
     Path::new(resource)
         .extension()
@@ -139,6 +145,7 @@ fn is_image_entry(resource: &str) -> bool {
         .is_some_and(|value| IMAGE_EXTENSIONS.contains(&value.as_str()))
 }
 
+// 查找图片资源的回退路径
 fn fallback_image_entry(apk: &Apk, resource: &str) -> Option<String> {
     let resource_path = Path::new(resource);
     let stem = resource_path.file_stem()?.to_str()?;
@@ -174,6 +181,7 @@ fn fallback_image_entry(apk: &Apk, resource: &str) -> Option<String> {
     best_match.map(|(_, value)| value)
 }
 
+// 解析图片资源的密度优先级
 fn density_priority(parent: &str) -> usize {
     DENSITY_ORDER
         .iter()
@@ -181,6 +189,7 @@ fn density_priority(parent: &str) -> usize {
         .unwrap_or(DENSITY_ORDER.len())
 }
 
+//规范化相对路径
 fn normalize_relative_path(path: &Path) -> String {
     let path = path.to_string_lossy().replace('\\', "/");
     let cwd = std::env::current_dir()

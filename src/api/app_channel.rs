@@ -70,15 +70,13 @@ pub async fn create_app_channel(
             create_info: format!("渠道'{}'创建成功！", app_channel_create.channel_name),
         }),
         Err(e) => {
-            return ApiOut::err(AppError::Internal(format!(
-                "创建渠道失败：{}",
-                e
-            )));
+            return ApiOut::err(AppError::Internal(format!("创建渠道失败：{}", e)));
         }
     }
 }
 
-#[endpoint(tags("app_channel"),summary = "根据分页获取渠道列表",description = "根据分页获取渠道列表",request_body = GetAppChannelListReq)]
+#[endpoint(tags("app_channel"),
+    summary = "根据分页获取渠道列表",description = "根据分页获取渠道列表",request_body = GetAppChannelListReq)]
 pub async fn get_app_channel_list_by_page(
     depot: &mut Depot,
     req: &mut Request,

@@ -15,6 +15,7 @@ diesel::table! {
     app_manage (id) {
         id -> Uuid,
         app_name -> Varchar,
+        app_version -> Varchar,
         app_download_url -> Varchar,
         create_user_id -> Uuid,
         channel_id -> Uuid,
@@ -27,7 +28,7 @@ diesel::table! {
         app_icon_path -> Varchar,
         version_name -> Varchar,
         version_code -> Varchar,
-        file_size -> BigInt,
+        file_size -> Int8,
         channel_name -> Varchar,
         update_log -> Varchar,
     }
