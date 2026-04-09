@@ -1,5 +1,6 @@
 use crate::model::app_manage::{
-    AppManage, UploadAppFileCompleteReq, UploadAppFileCompleteResp, UploadAppFileResp,
+    AppManage, GetAppListReq, GetAppListResp, GetAppListRespItem, UploadAppFileCompleteReq,
+    UploadAppFileCompleteResp, UploadAppFileResp,
 };
 use crate::model::body::parse_json_body;
 use crate::model::error::{ApiOut, AppError};
@@ -9,6 +10,7 @@ use crate::utils::apk_utils::extract_apk_metadata;
 use crate::utils::database_utils::connect_database;
 use chrono::Local;
 use diesel::RunQueryDsl;
+use diesel::prelude::*;
 use salvo::oapi::extract::FormFile;
 use salvo::prelude::*;
 use std::path::Path;
@@ -185,9 +187,9 @@ pub async fn upload_app_file_complete(
         app_icon_path: get_upload_app_file_complete_req.app_icon_path.clone(),
         version_name: get_upload_app_file_complete_req.version_name.clone(),
         version_code: get_upload_app_file_complete_req.version_code.clone(),
-        file_size: get_upload_app_file_complete_req.file_size.clone(),
+        file_size: get_upload_app_file_complete_req.file_size,
         channel_name: get_upload_app_file_complete_req.channel_name.clone(),
-        channel_id: get_upload_app_file_complete_req.channel_id.clone(),
+        channel_id: get_upload_app_file_complete_req.channel_id,
         update_log: get_upload_app_file_complete_req.update_log.clone(),
     };
 
@@ -206,8 +208,132 @@ pub async fn upload_app_file_complete(
     }
 }
 
+#[endpoint(tags("app_manage"), summary = "应用列表", description = "应用列表")]
+pub async fn get_app_list_by_page(depot: &mut Depot, req: &mut Request) -> ApiOut<GetAppListResp> {
+    let get_app_list_req = match parse_json_body::<GetAppListReq>(req).await {
+        Ok(v) => v,
+        Err(e) => return ApiOut::err(e),
+    };
+
+    if get_app_list_req.page_size <= 0 || get_app_list_req.page_index < 0 {
+        return ApiOut::err(AppError::BadRequest(
+            "分页参数错误，page_size必须大于0，page_index必须大于等于0".to_string(),
+        ));
+    }
+
+    let user_id = depot.get::<User>("user").expect("未找到用户。").id;
+    let mut conn = connect_database(depot);
+
+    let total_app_count = match app_manage::table
+        .filter(app_manage::create_user_id.eq(&user_id))
+        .filter(app_manage::is_delete.eq(false))
+        .count()
+        .get_result::<i64>(&mut conn)
+    {
+        Ok(count) => count,
+        Err(e) => return ApiOut::err(AppError::Internal(format!("查询应用总数失败:{}", e))),
+    };
+
+    let total_page_count = if total_app_count == 0 {
+        0
+    } else {
+        (total_app_count + get_app_list_req.page_size - 1) / get_app_list_req.page_size
+    };
+
+    let all_app_list = match app_manage::table
+        .select((
+            app_manage::id,
+            app_manage::app_name,
+            app_manage::app_download_url,
+            app_manage::channel_id,
+            app_manage::file_path,
+            app_manage::file_name,
+            app_manage::package_name,
+            app_manage::app_icon_path,
+            app_manage::version_name,
+            app_manage::version_code,
+            app_manage::file_size,
+            app_manage::channel_name,
+            app_manage::update_log,
+            app_manage::create_time,
+            app_manage::update_time,
+        ))
+        .filter(app_manage::create_user_id.eq(&user_id))
+        .filter(app_manage::is_delete.eq(false))
+        .order(app_manage::create_time.desc())
+        .limit(get_app_list_req.page_size)
+        .offset(get_app_list_req.page_index * get_app_list_req.page_size)
+        .load::<(
+            Uuid,
+            String,
+            String,
+            Uuid,
+            String,
+            String,
+            String,
+            String,
+            String,
+            String,
+            i64,
+            String,
+            String,
+            chrono::NaiveDateTime,
+            chrono::NaiveDateTime,
+        )>(&mut conn)
+    {
+        Ok(list) => list,
+        Err(e) => return ApiOut::err(AppError::Internal(format!("获取应用列表失败:{}", e))),
+    };
+
+    let app_list = all_app_list
+        .into_iter()
+        .map(
+            |(
+                app_id,
+                app_name,
+                app_download_url,
+                channel_id,
+                file_path,
+                file_name,
+                package_name,
+                app_icon_path,
+                version_name,
+                version_code,
+                file_size,
+                channel_name,
+                update_log,
+                create_time,
+                update_time,
+            )| GetAppListRespItem {
+                app_id,
+                app_name,
+                app_download_url,
+                channel_id,
+                file_path,
+                file_name,
+                package_name,
+                app_icon_path,
+                version_name,
+                version_code,
+                file_size,
+                channel_name,
+                update_log,
+                create_time,
+                update_time,
+            },
+        )
+        .collect();
+
+    ApiOut::ok(GetAppListResp {
+        app_list,
+        total_app_count,
+        total_page_count,
+    })
+}
+
 pub fn app_manage_router() -> Router {
     Router::with_path("app_manage")
         .push(Router::with_path("upload_app_file").post(upload_app_file))
         .push(Router::with_path("upload_app_file_complete").post(upload_app_file_complete))
+        .push(Router::with_path("get_app_list_by_page").post(get_app_list_by_page))
 }

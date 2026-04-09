@@ -103,3 +103,58 @@ pub struct UploadAppFileCompleteResp {
     ///发布应用信息
     pub upload_app_complete_info: String,
 }
+
+///分页查询应用列表请求参数
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct GetAppListReq {
+    ///分页查询应用列表大小
+    pub page_size: i64,
+    ///分页查询应用列表索引
+    pub page_index: i64,
+}
+
+///分页查询应用列表返回参数
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct GetAppListResp {
+    ///应用列表
+    pub app_list: Vec<GetAppListRespItem>,
+    ///应用总数
+    pub total_app_count: i64,
+    ///总页数
+    pub total_page_count: i64,
+}
+
+///分页查询应用列表单项
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct GetAppListRespItem {
+    ///应用ID
+    pub app_id: Uuid,
+    ///应用名称
+    pub app_name: String,
+    ///应用下载地址
+    pub app_download_url: String,
+    ///渠道ID
+    pub channel_id: Uuid,
+    ///文件路径
+    pub file_path: String,
+    ///文件名称
+    pub file_name: String,
+    ///包名
+    pub package_name: String,
+    ///APP图标文件路径
+    pub app_icon_path: String,
+    ///版本名称
+    pub version_name: String,
+    ///版本号
+    pub version_code: String,
+    ///文件大小
+    pub file_size: i64,
+    ///渠道名称
+    pub channel_name: String,
+    ///更新日志
+    pub update_log: String,
+    ///创建时间
+    pub create_time: NaiveDateTime,
+    ///更新时间
+    pub update_time: NaiveDateTime,
+}

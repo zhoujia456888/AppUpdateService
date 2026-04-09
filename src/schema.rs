@@ -15,7 +15,6 @@ diesel::table! {
     app_manage (id) {
         id -> Uuid,
         app_name -> Varchar,
-        app_version -> Varchar,
         app_download_url -> Varchar,
         create_user_id -> Uuid,
         channel_id -> Uuid,

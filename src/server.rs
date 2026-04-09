@@ -5,6 +5,7 @@ use crate::api::users::{auth_token, user_router_not_auth, users_router};
 use crate::db::establish_connection_pool;
 use crate::middleware::access_log::AccessLog;
 use crate::model::jwt::{AccessTokenClaims, get_jwt_secret_key};
+use crate::utils::app_manage_cleanup_task::start_app_manage_cleanup_task;
 use crate::utils::json_error_catcher::json_error_catcher;
 use moka::future::Cache;
 use salvo::catcher::Catcher;
@@ -23,6 +24,7 @@ const PUBLIC_APP_MANAGE_DIR: &str = "app_manage";
 pub async fn run() {
     //数据库
     let pool = Arc::new(establish_connection_pool());
+    start_app_manage_cleanup_task(pool.clone());
 
     //登录验证码缓存
     let captcha_cache: Cache<String, String> = Cache::builder()
@@ -59,17 +61,15 @@ pub async fn run() {
     //添加需要token的接口路由配置
     let router = router.push(
         Router::with_path("api")
-            .hoop(auth_handler) // JwtAuth 中间件放在这里
+            .hoop(auth_handler)
             .hoop(auth_token)
             .push(users_router())
             .push(app_channel_router())
             .push(app_manage_router()),
     );
 
-    //打印路径用于调试
     info!("{:?}", router);
 
-    //设置api-doc
     let doc = OpenApi::new("AppUpdateService API", "0.0.1")
         .add_security_scheme(
             "Authorization",
@@ -88,7 +88,6 @@ pub async fn run() {
     let catcher = Catcher::default().hoop(json_error_catcher);
 
     let service = service.catcher(catcher);
-    //开始服务请求
     Server::new(acceptor).serve(service).await;
 }
 
