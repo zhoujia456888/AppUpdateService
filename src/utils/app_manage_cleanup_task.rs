@@ -12,6 +12,7 @@ use tracing::{error, info, warn};
 const APP_MANAGE_DIR: &str = "app_manage";
 const APK_DIR: &str = "apk";
 const ICON_DIR: &str = "icons";
+const ICON_PUBLIC_ROUTE: &str = "icon";
 const PUBLIC_APP_MANAGE_PREFIX: &str = "/api/public/app_manage";
 
 pub fn start_app_manage_cleanup_task(pool: Arc<DbPool>) {
@@ -59,10 +60,10 @@ fn cleanup_unused_files(pool: &Arc<DbPool>) -> anyhow::Result<(usize, usize)> {
     let mut icon_names = HashSet::new();
 
     for (file_path, icon_path) in referenced_files {
-        if let Some(name) = extract_managed_filename(&file_path, APK_DIR) {
+        if let Some(name) = extract_managed_filename(&file_path, &[APK_DIR]) {
             apk_names.insert(name);
         }
-        if let Some(name) = extract_managed_filename(&icon_path, ICON_DIR) {
+        if let Some(name) = extract_managed_filename(&icon_path, &[ICON_DIR, ICON_PUBLIC_ROUTE]) {
             icon_names.insert(name);
         }
     }
@@ -107,23 +108,25 @@ fn cleanup_directory(dir: &Path, referenced_names: &HashSet<String>) -> anyhow::
     Ok(deleted_count)
 }
 
-fn extract_managed_filename(value: &str, kind: &str) -> Option<String> {
+fn extract_managed_filename(value: &str, kinds: &[&str]) -> Option<String> {
     let trimmed = value.trim();
     if trimmed.is_empty() {
         return None;
     }
 
-    let public_prefix = format!("{PUBLIC_APP_MANAGE_PREFIX}/{kind}?name=");
-    if let Some(name) = trimmed.strip_prefix(&public_prefix) {
-        return normalize_filename(name);
+    for kind in kinds {
+        let public_prefix = format!("{PUBLIC_APP_MANAGE_PREFIX}/{kind}?name=");
+        if let Some(name) = trimmed.strip_prefix(&public_prefix) {
+            return normalize_filename(name);
+        }
     }
 
     let normalized = trimmed.replace('\\', "/");
-    if normalized.contains(&format!("/{kind}/")) || normalized.starts_with(&format!("{APP_MANAGE_DIR}/{kind}/")) {
-        return normalized
-            .rsplit('/')
-            .next()
-            .and_then(normalize_filename);
+    if kinds.iter().any(|kind| {
+        normalized.contains(&format!("/{kind}/"))
+            || normalized.starts_with(&format!("{APP_MANAGE_DIR}/{kind}/"))
+    }) {
+        return normalized.rsplit('/').next().and_then(normalize_filename);
     }
 
     None
@@ -136,3 +139,4 @@ fn normalize_filename(name: &str) -> Option<String> {
     }
     Some(filename.to_string())
 }
+
