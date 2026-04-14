@@ -1,6 +1,6 @@
 use crate::model::app_manage::{
-    AppManage, GetAppListReq, GetAppListResp, GetAppListRespItem, UploadAppFileCompleteReq,
-    UploadAppFileCompleteResp, UploadAppFileResp,
+    AppManage, GetAppInfoReq, GetAppListReq, GetAppListResp, GetAppListRespItem,
+    UploadAppFileCompleteReq, UploadAppFileCompleteResp, UploadAppFileResp,
 };
 use crate::model::body::parse_json_body;
 use crate::model::error::{ApiOut, AppError};
@@ -241,45 +241,12 @@ pub async fn get_app_list_by_page(depot: &mut Depot, req: &mut Request) -> ApiOu
     };
 
     let all_app_list = match app_manage::table
-        .select((
-            app_manage::id,
-            app_manage::app_name,
-            app_manage::app_download_url,
-            app_manage::channel_id,
-            app_manage::file_path,
-            app_manage::file_name,
-            app_manage::package_name,
-            app_manage::app_icon_path,
-            app_manage::version_name,
-            app_manage::version_code,
-            app_manage::file_size,
-            app_manage::channel_name,
-            app_manage::update_log,
-            app_manage::create_time,
-            app_manage::update_time,
-        ))
         .filter(app_manage::create_user_id.eq(&user_id))
         .filter(app_manage::is_delete.eq(false))
         .order(app_manage::create_time.desc())
         .limit(get_app_list_req.page_size)
         .offset(get_app_list_req.page_index * get_app_list_req.page_size)
-        .load::<(
-            Uuid,
-            String,
-            String,
-            Uuid,
-            String,
-            String,
-            String,
-            String,
-            String,
-            String,
-            i64,
-            String,
-            String,
-            chrono::NaiveDateTime,
-            chrono::NaiveDateTime,
-        )>(&mut conn)
+        .load::<AppManage>(&mut conn)
     {
         Ok(list) => list,
         Err(e) => return ApiOut::err(AppError::Internal(format!("获取应用列表失败:{}", e))),
@@ -287,41 +254,7 @@ pub async fn get_app_list_by_page(depot: &mut Depot, req: &mut Request) -> ApiOu
 
     let app_list = all_app_list
         .into_iter()
-        .map(
-            |(
-                app_id,
-                app_name,
-                app_download_url,
-                channel_id,
-                file_path,
-                file_name,
-                package_name,
-                app_icon_path,
-                version_name,
-                version_code,
-                file_size,
-                channel_name,
-                update_log,
-                create_time,
-                update_time,
-            )| GetAppListRespItem {
-                app_id,
-                app_name,
-                app_download_url,
-                channel_id,
-                file_path,
-                file_name,
-                package_name,
-                app_icon_path,
-                version_name,
-                version_code,
-                file_size,
-                channel_name,
-                update_log,
-                create_time,
-                update_time,
-            },
-        )
+        .map(|app| get_app_resp_item(&app))
         .collect();
 
     ApiOut::ok(GetAppListResp {
@@ -330,10 +263,55 @@ pub async fn get_app_list_by_page(depot: &mut Depot, req: &mut Request) -> ApiOu
         total_page_count,
     })
 }
+#[endpoint(tags("app_manage"), summary = "应用详情", description = "根据应用ID查询应用详情")]
+pub async fn get_app_info(depot: &mut Depot, req: &mut Request) -> ApiOut<GetAppListRespItem> {
+    let get_app_info_req = match parse_json_body::<GetAppInfoReq>(req).await {
+        Ok(v) => v,
+        Err(e) => return ApiOut::err(e),
+    };
+
+    let user_id = depot.get::<User>("user").expect("未找到用户。").id;
+    let mut conn = connect_database(depot);
+    let app = match app_manage::table
+        .filter(app_manage::create_user_id.eq(&user_id))
+        .filter(app_manage::is_delete.eq(false))
+        .filter(app_manage::id.eq(get_app_info_req.app_id))
+        .first::<AppManage>(&mut conn)
+    {
+        Ok(app) => app,
+        Err(diesel::result::Error::NotFound) => {
+            return ApiOut::err(AppError::NotFound("应用不存在或无权限访问".to_string()));
+        }
+        Err(e) => return ApiOut::err(AppError::Internal(format!("获取应用详情失败:{}", e))),
+    };
+
+    ApiOut::ok(get_app_resp_item(&app))
+}
+
+fn  get_app_resp_item(app: &AppManage) -> GetAppListRespItem {
+    GetAppListRespItem {
+        app_id: app.id,
+        app_name: app.app_name.clone(),
+        app_download_url: app.app_download_url.clone(),
+        channel_id: app.channel_id,
+        file_path: app.file_path.clone(),
+        file_name: app.file_name.clone(),
+        package_name: app.package_name.clone(),
+        app_icon_path: app.app_icon_path.clone(),
+        version_name: app.version_name.clone(),
+        version_code: app.version_code.clone(),
+        file_size: app.file_size,
+        channel_name: app.channel_name.clone(),
+        update_log: app.update_log.clone(),
+        create_time: app.create_time,
+        update_time: app.update_time,
+    }
+}
 
 pub fn app_manage_router() -> Router {
     Router::with_path("app_manage")
         .push(Router::with_path("upload_app_file").post(upload_app_file))
         .push(Router::with_path("upload_app_file_complete").post(upload_app_file_complete))
         .push(Router::with_path("get_app_list_by_page").post(get_app_list_by_page))
+        
 }

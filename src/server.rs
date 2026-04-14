@@ -1,5 +1,5 @@
 use crate::api::app_channel::app_channel_router;
-use crate::api::app_manage::app_manage_router;
+use crate::api::app_manage::{app_manage_router, get_app_info};
 use crate::api::ping::ping_router;
 use crate::api::users::{auth_token, user_router_not_auth, users_router};
 use crate::db::establish_connection_pool;
@@ -54,6 +54,7 @@ pub async fn run() {
                         .push(Router::with_path("apk").get(public_app_manage_apk_file)),
                 ),
             )
+            .push(Router::with_path("get_app_info").post(get_app_info))
             .push(ping_router())
             .push(user_router_not_auth()),
     );

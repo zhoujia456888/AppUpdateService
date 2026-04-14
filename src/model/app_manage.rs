@@ -158,3 +158,12 @@ pub struct GetAppListRespItem {
     ///更新时间
     pub update_time: NaiveDateTime,
 }
+
+///根据应用ID查询应用信息请求参数
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct GetAppInfoReq {
+    ///应用ID
+    pub app_id: Uuid,
+}
+
+
