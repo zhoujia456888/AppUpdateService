@@ -12,6 +12,7 @@ use crate::utils::database_utils::connect_database;
 use crate::utils::jwt_service::{
     generate_access_token, generate_refresh_token, refresh_access_token,
 };
+use crate::utils::operation_log_utils::{OP_LOGIN, record_operation};
 use crate::utils::password_utils::{hash_password, verify_password};
 use chrono::Local;
 use diesel::prelude::*;
@@ -182,11 +183,23 @@ pub async fn login(depot: &mut Depot, req: &mut Request) -> ApiOut<LoginResp> {
                     refresh_token_str,
                     &mut conn,
                 ) {
-                    Ok(token_resp) => ApiOut::ok(LoginResp {
-                        access_token: token_resp.access_token,
-                        refresh_token: token_resp.refresh_token,
-                        login_info: format!("用户'{}'登录成功！", login_req.username),
-                    }),
+                    Ok(token_resp) => {
+                        if let Err(e) = record_operation(
+                            &mut conn,
+                            existing_user.id,
+                            &existing_user.username,
+                            OP_LOGIN,
+                            format!("用户'{}'登录成功", existing_user.username),
+                        ) {
+                            return ApiOut::err(e);
+                        }
+
+                        ApiOut::ok(LoginResp {
+                            access_token: token_resp.access_token,
+                            refresh_token: token_resp.refresh_token,
+                            login_info: format!("用户'{}'登录成功！", login_req.username),
+                        })
+                    }
                     Err(app_error) => ApiOut::Err(app_error),
                 }
             }

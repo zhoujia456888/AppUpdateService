@@ -8,6 +8,9 @@ use crate::model::error::{ApiOut, AppError};
 use crate::model::users::User;
 use crate::schema::*;
 use crate::utils::database_utils::connect_database;
+use crate::utils::operation_log_utils::{
+    OP_CREATE_APP_CHANNEL, OP_DELETE_APP_CHANNEL, record_operation,
+};
 use chrono::Local;
 use diesel::RunQueryDsl;
 use diesel::prelude::*;
@@ -28,6 +31,11 @@ pub async fn create_app_channel(
     let mut conn = connect_database(depot);
 
     let current_user_id = depot.get::<User>("user").expect("未找到用户。").id;
+    let current_username = depot
+        .get::<User>("user")
+        .expect("未找到用户。")
+        .username
+        .clone();
 
     if app_channel_create.channel_name.is_empty() {
         return ApiOut::err(AppError::BadRequest("渠道名称不能为空".to_string()));
@@ -65,10 +73,22 @@ pub async fn create_app_channel(
         .values(&new_channel)
         .execute(&mut conn)
     {
-        Ok(_) => ApiOut::ok(CreateAppChannelResp {
-            channel_name: app_channel_create.channel_name.to_string(),
-            create_info: format!("渠道'{}'创建成功！", app_channel_create.channel_name),
-        }),
+        Ok(_) => {
+            if let Err(e) = record_operation(
+                &mut conn,
+                current_user_id,
+                &current_username,
+                OP_CREATE_APP_CHANNEL,
+                format!("创建渠道'{}'成功", app_channel_create.channel_name),
+            ) {
+                return ApiOut::err(e);
+            }
+
+            ApiOut::ok(CreateAppChannelResp {
+                channel_name: app_channel_create.channel_name.to_string(),
+                create_info: format!("渠道'{}'创建成功！", app_channel_create.channel_name),
+            })
+        }
         Err(e) => {
             return ApiOut::err(AppError::Internal(format!("创建渠道失败：{}", e)));
         }
@@ -96,19 +116,44 @@ pub async fn get_app_channel_list_by_page(
         ));
     }
 
-    let total_channel_count = app_channel::table
+    let channel_name_keyword = get_app_channel_list_req.channel_name.trim();
+
+    let mut total_channel_query = app_channel::table
         .filter(app_channel::create_user_id.eq(&user_id))
         .filter(app_channel::is_delete.eq(false))
-        .load::<AppChannel>(&mut conn)
+        .into_boxed();
+
+    if !channel_name_keyword.is_empty() {
+        total_channel_query = total_channel_query.filter(
+            app_channel::channel_name.like(format!("%{}%", channel_name_keyword)),
+        );
+    }
+
+    let total_channel_count = total_channel_query
+        .count()
+        .get_result::<i64>(&mut conn)
         .expect("查询渠道总数失败");
 
-    let total_page = (total_channel_count.len() as i64 + get_app_channel_list_req.page_size - 1)
-        / get_app_channel_list_req.page_size;
+    let total_page = if total_channel_count == 0 {
+        0
+    } else {
+        (total_channel_count + get_app_channel_list_req.page_size - 1)
+            / get_app_channel_list_req.page_size
+    };
 
     //分页查询当前用户下的所有渠道
-    let all_app_channel = app_channel::table
+    let mut all_app_channel_query = app_channel::table
         .filter(app_channel::create_user_id.eq(&user_id))
         .filter(app_channel::is_delete.eq(false))
+        .into_boxed();
+
+    if !channel_name_keyword.is_empty() {
+        all_app_channel_query = all_app_channel_query.filter(
+            app_channel::channel_name.like(format!("%{}%", channel_name_keyword)),
+        );
+    }
+
+    let all_app_channel = all_app_channel_query
         .order(app_channel::create_time.desc())
         .limit(get_app_channel_list_req.page_size)
         .offset(get_app_channel_list_req.page_index * get_app_channel_list_req.page_size)
@@ -119,7 +164,7 @@ pub async fn get_app_channel_list_by_page(
 
     let resp = GetAppChannelListResp {
         channel_list: app_channel_list,
-        total_channel_count: total_channel_count.len() as i64,
+        total_channel_count,
         total_page_count: total_page,
     };
 
@@ -254,6 +299,7 @@ pub async fn delete_app_channel(
     };
 
     let mut conn = connect_database(depot);
+    let current_user = depot.get::<User>("user").expect("未找到用户。");
 
     let result = diesel::update(app_channel::table.find(app_channel_req.channel_id))
         .set((app_channel::is_delete.eq(&true),))
@@ -266,6 +312,16 @@ pub async fn delete_app_channel(
                     format!("渠道Id'{}' 未找到", app_channel_req.channel_id).to_string(),
                 ))
             } else {
+                if let Err(e) = record_operation(
+                    &mut conn,
+                    current_user.id,
+                    &current_user.username,
+                    OP_DELETE_APP_CHANNEL,
+                    format!("删除渠道'{}'成功", app_channel_req.channel_name),
+                ) {
+                    return ApiOut::err(e);
+                }
+
                 ApiOut::ok(DeleteAppChannelResp {
                     channel_id: app_channel_req.channel_id,
                     delete_info: format!("渠道'{}'删除成功", app_channel_req.channel_name),
@@ -289,6 +345,7 @@ pub async fn completely_delete_app_channel(
     };
 
     let mut conn = connect_database(depot);
+    let current_user = depot.get::<User>("user").expect("未找到用户。");
 
     let affected =
         diesel::delete(app_channel::table.filter(app_channel::id.eq(app_channel_req.channel_id)))
@@ -298,10 +355,22 @@ pub async fn completely_delete_app_channel(
         Ok(0) => ApiOut::err(AppError::NotFound(
             format!("渠道Id'{}' 未找到", app_channel_req.channel_id).to_string(),
         )),
-        Ok(_) => ApiOut::ok(DeleteAppChannelResp {
-            channel_id: app_channel_req.channel_id,
-            delete_info: format!("渠道'{}'删除成功", app_channel_req.channel_name),
-        }),
+        Ok(_) => {
+            if let Err(e) = record_operation(
+                &mut conn,
+                current_user.id,
+                &current_user.username,
+                OP_DELETE_APP_CHANNEL,
+                format!("彻底删除渠道'{}'成功", app_channel_req.channel_name),
+            ) {
+                return ApiOut::err(e);
+            }
+
+            ApiOut::ok(DeleteAppChannelResp {
+                channel_id: app_channel_req.channel_id,
+                delete_info: format!("渠道'{}'删除成功", app_channel_req.channel_name),
+            })
+        }
         Err(e) => ApiOut::err(AppError::Internal(
             format!("完全删除渠道信息失败:{}", e).to_string(),
         )),

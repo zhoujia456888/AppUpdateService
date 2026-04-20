@@ -50,6 +50,9 @@ pub struct GetAppChannelListReq {
     pub page_size: i64,
     ///分页查询渠道列表索引
     pub page_index: i64,
+    ///渠道名称关键词
+    #[serde(default)]
+    pub channel_name: String,
 }
 
 ///获取当前账户下的所有渠道返回参数

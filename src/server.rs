@@ -1,5 +1,6 @@
 use crate::api::app_channel::app_channel_router;
-use crate::api::app_manage::{app_manage_router, get_app_info};
+use crate::api::app_manage::{app_check_update, app_manage_router, get_app_info};
+use crate::api::operation_log::operation_log_router;
 use crate::api::ping::ping_router;
 use crate::api::users::{auth_token, user_router_not_auth, users_router};
 use crate::db::establish_connection_pool;
@@ -20,6 +21,42 @@ use std::time::Duration;
 use tracing::info;
 
 const PUBLIC_APP_MANAGE_DIR: &str = "app_manage";
+
+fn build_public_router() -> Router {
+    Router::with_path("api").push(
+        Router::with_path("public")
+            .push(
+                Router::with_path("app_manage")
+                    .push(Router::with_path("icon").get(public_app_manage_icon_file))
+                    .push(Router::with_path("apk").get(public_app_manage_apk_file))
+                    .push(Router::with_path("app_check_update").post(app_check_update))
+                    .push(Router::with_path("get_app_info").post(get_app_info)),
+            )
+            .push(ping_router())
+            .push(user_router_not_auth()),
+    )
+}
+
+fn build_protected_router(auth_handler: JwtAuth<AccessTokenClaims, ConstDecoder>) -> Router {
+    Router::with_path("api")
+        .hoop(auth_handler)
+        .hoop(auth_token)
+        .push(users_router())
+        .push(operation_log_router())
+        .push(app_channel_router())
+        .push(app_manage_router())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn public_router_should_expose_get_app_info() {
+        let debug = format!("{:?}", build_public_router());
+        assert!(debug.contains("get_app_info"));
+    }
+}
 
 pub async fn run() {
     //数据库
@@ -44,30 +81,13 @@ pub async fn run() {
         .hoop(AccessLog {})
         .hoop(affix_state::inject(pool).inject(Arc::new(captcha_cache)));
 
-    //添加不需要token的接口
-    let router = router.push(
-        Router::with_path("api")
-            .push(
-                Router::with_path("public").push(
-                    Router::with_path("app_manage")
-                        .push(Router::with_path("icon").get(public_app_manage_icon_file))
-                        .push(Router::with_path("apk").get(public_app_manage_apk_file)),
-                ),
-            )
-            .push(Router::with_path("get_app_info").post(get_app_info))
-            .push(ping_router())
-            .push(user_router_not_auth()),
-    );
+    // 添加公开接口：不需要 Token，可直接访问
+    let public_router = build_public_router();
 
-    //添加需要token的接口路由配置
-    let router = router.push(
-        Router::with_path("api")
-            .hoop(auth_handler)
-            .hoop(auth_token)
-            .push(users_router())
-            .push(app_channel_router())
-            .push(app_manage_router()),
-    );
+    // 添加受保护接口：统一要求 Token 鉴权
+    let protected_router = build_protected_router(auth_handler);
+
+    let router = router.push(public_router).push(protected_router);
 
     info!("{:?}", router);
 
@@ -92,17 +112,20 @@ pub async fn run() {
     Server::new(acceptor).serve(service).await;
 }
 
+// 公开应用图标文件
 #[handler]
 async fn public_app_manage_icon_file(req: &mut Request, depot: &mut Depot, res: &mut Response) {
     serve_public_app_manage_file("icons", req, depot, res).await;
 }
 
+// 公开应用APK文件
 #[handler]
 async fn public_app_manage_apk_file(req: &mut Request, depot: &mut Depot, res: &mut Response) {
     serve_public_app_manage_file("apk", req, depot, res).await;
 }
 
-async fn serve_public_app_manage_file(
+// 公开应用管理文件
+pub async fn serve_public_app_manage_file(
     sub_dir: &str,
     req: &mut Request,
     depot: &mut Depot,

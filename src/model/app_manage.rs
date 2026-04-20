@@ -28,23 +28,23 @@ pub struct AppManage {
     ///是否删除
     pub is_delete: bool,
     ///文件路径
-    pub file_path: String,
+    pub file_path: Option<String>,
     ///文件名称
-    pub file_name: String,
+    pub file_name: Option<String>,
     ///包名
-    pub package_name: String,
+    pub package_name: Option<String>,
     ///APP图标文件路径
-    pub app_icon_path: String,
+    pub app_icon_path: Option<String>,
     ///版本名称
-    pub version_name: String,
+    pub version_name: Option<String>,
     ///版本号
     pub version_code: String,
     ///文件大小
     pub file_size: i64,
     ///渠道名称
-    pub channel_name: String,
+    pub channel_name: Option<String>,
     ///更新日志
-    pub update_log: String,
+    pub update_log: Option<String>,
 }
 
 ///上传文件返回参数
@@ -111,6 +111,9 @@ pub struct GetAppListReq {
     pub page_size: i64,
     ///分页查询应用列表索引
     pub page_index: i64,
+    ///搜索关键词，同时匹配应用名称、包名、渠道名称
+    #[serde(default)]
+    pub search_key: String,
 }
 
 ///分页查询应用列表返回参数
@@ -166,4 +169,46 @@ pub struct GetAppInfoReq {
     pub app_id: Uuid,
 }
 
+///删除应用请求参数
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct DeleteAppReq {
+    ///应用ID
+    pub app_id: Uuid,
+    ///应用名称
+    pub app_name: String,
+}
 
+///删除应用返回参数
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct DeleteAppResp {
+    ///应用ID
+    pub app_id: Uuid,
+    ///删除结果信息
+    pub delete_info: String,
+}
+
+///检查应用更新请求参数
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct AppCheckUpdateReq {
+    ///包名
+    pub package_name: String,
+    ///渠道名称
+    pub channel_name: String,
+}
+
+///检查应用更新返回参数
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct AppCheckUpdateResp {
+    ///应用名称
+    pub app_name: String,
+    ///包名
+    pub package_name: String,
+    ///渠道名称
+    pub channel_name: String,
+    ///版本名称
+    pub version_name: String,
+    ///版本号
+    pub version_code: String,
+    ///应用下载地址
+    pub app_download_url: String,
+}

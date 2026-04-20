@@ -21,15 +21,26 @@ diesel::table! {
         create_time -> Timestamp,
         update_time -> Timestamp,
         is_delete -> Bool,
-        file_path -> Varchar,
-        file_name -> Varchar,
-        package_name -> Varchar,
-        app_icon_path -> Varchar,
-        version_name -> Varchar,
+        file_path -> Nullable<Varchar>,
+        file_name -> Nullable<Varchar>,
+        package_name -> Nullable<Varchar>,
+        app_icon_path -> Nullable<Varchar>,
+        version_name -> Nullable<Varchar>,
         version_code -> Varchar,
         file_size -> Int8,
-        channel_name -> Varchar,
-        update_log -> Varchar,
+        channel_name -> Nullable<Varchar>,
+        update_log -> Nullable<Varchar>,
+    }
+}
+
+diesel::table! {
+    operation_log (id) {
+        id -> Uuid,
+        user_id -> Uuid,
+        username -> Varchar,
+        operation_type -> Varchar,
+        operation_detail -> Varchar,
+        create_time -> Timestamp,
     }
 }
 
@@ -50,5 +61,6 @@ diesel::table! {
 diesel::joinable!(app_channel -> users (create_user_id));
 diesel::joinable!(app_manage -> app_channel (channel_id));
 diesel::joinable!(app_manage -> users (create_user_id));
+diesel::joinable!(operation_log -> users (user_id));
 
-diesel::allow_tables_to_appear_in_same_query!(app_channel, app_manage, users,);
+diesel::allow_tables_to_appear_in_same_query!(app_channel, app_manage, operation_log, users,);

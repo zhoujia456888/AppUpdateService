@@ -3,5 +3,6 @@ pub mod app_manage;
 pub mod body;
 pub mod error;
 pub mod jwt;
+pub mod operation_log;
 pub mod response;
 pub mod users;

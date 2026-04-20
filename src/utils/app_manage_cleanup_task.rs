@@ -41,7 +41,11 @@ fn duration_until_next_run() -> Duration {
 fn run_cleanup_once(pool: &Arc<DbPool>) {
     match cleanup_unused_files(pool) {
         Ok((apk_count, icon_count)) => {
-            info!(apk_deleted = apk_count, icon_deleted = icon_count, "app_manage 无效文件清理完成");
+            info!(
+                apk_deleted = apk_count,
+                icon_deleted = icon_count,
+                "app_manage 无效文件清理完成"
+            );
         }
         Err(e) => {
             error!(error = %e, "app_manage 无效文件清理失败");
@@ -54,22 +58,29 @@ fn cleanup_unused_files(pool: &Arc<DbPool>) -> anyhow::Result<(usize, usize)> {
     let referenced_files = app_manage::table
         .select((app_manage::file_path, app_manage::app_icon_path))
         .filter(app_manage::is_delete.eq(false))
-        .load::<(String, String)>(&mut conn)?;
+        .load::<(Option<String>, Option<String>)>(&mut conn)?;
 
     let mut apk_names = HashSet::new();
     let mut icon_names = HashSet::new();
 
     for (file_path, icon_path) in referenced_files {
-        if let Some(name) = extract_managed_filename(&file_path, &[APK_DIR]) {
+        if let Some(name) = file_path
+            .as_deref()
+            .and_then(|value| extract_managed_filename(value, &[APK_DIR]))
+        {
             apk_names.insert(name);
         }
-        if let Some(name) = extract_managed_filename(&icon_path, &[ICON_DIR, ICON_PUBLIC_ROUTE]) {
+        if let Some(name) = icon_path
+            .as_deref()
+            .and_then(|value| extract_managed_filename(value, &[ICON_DIR, ICON_PUBLIC_ROUTE]))
+        {
             icon_names.insert(name);
         }
     }
 
     let apk_deleted = cleanup_directory(&PathBuf::from(APP_MANAGE_DIR).join(APK_DIR), &apk_names)?;
-    let icon_deleted = cleanup_directory(&PathBuf::from(APP_MANAGE_DIR).join(ICON_DIR), &icon_names)?;
+    let icon_deleted =
+        cleanup_directory(&PathBuf::from(APP_MANAGE_DIR).join(ICON_DIR), &icon_names)?;
 
     Ok((apk_deleted, icon_deleted))
 }
@@ -133,10 +144,18 @@ fn extract_managed_filename(value: &str, kinds: &[&str]) -> Option<String> {
 }
 
 fn normalize_filename(name: &str) -> Option<String> {
-    let filename = name.split('&').next().unwrap_or(name).trim().trim_start_matches('/');
-    if filename.is_empty() || filename.contains("..") || filename.contains('/') || filename.contains('\\') {
+    let filename = name
+        .split('&')
+        .next()
+        .unwrap_or(name)
+        .trim()
+        .trim_start_matches('/');
+    if filename.is_empty()
+        || filename.contains("..")
+        || filename.contains('/')
+        || filename.contains('\\')
+    {
         return None;
     }
     Some(filename.to_string())
 }
-

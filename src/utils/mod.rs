@@ -4,4 +4,5 @@ pub mod auth_captcha_utils;
 pub mod database_utils;
 pub mod json_error_catcher;
 pub mod jwt_service;
+pub mod operation_log_utils;
 pub mod password_utils;

@@ -1,2 +1,0 @@
-ALTER TABLE "app_manage"
-ADD COLUMN "app_version" VARCHAR NOT NULL DEFAULT '';
