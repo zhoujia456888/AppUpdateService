@@ -1,9 +1,5 @@
-use crate::model::error::{ApiOut, AppError};
-use crate::model::users::{AuthCaptcha, CaptchaResp};
+use crate::model::users::AuthCaptcha;
 use captcha_rs::CaptchaBuilder;
-use moka::future::Cache;
-use salvo::Depot;
-use std::sync::Arc;
 use uuid::Uuid;
 
 ///
@@ -28,19 +24,4 @@ pub fn get_auth_captcha() -> AuthCaptcha {
         text,
         img: base64,
     }
-}
-
-//从内存中获取验证码缓存
-pub fn get_captcha_cache(
-    depot: &mut Depot,
-) -> Result<&Arc<Cache<String, String>>, ApiOut<CaptchaResp>> {
-    let cache = match depot.obtain::<Arc<Cache<String, String>>>() {
-        Ok(cache) => cache,
-        Err(_) => {
-            return Err(ApiOut::err(AppError::Internal(
-                "验证码缓存未初始化".to_string(),
-            )));
-        }
-    };
-    Ok(cache)
 }

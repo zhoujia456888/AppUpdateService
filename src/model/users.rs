@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 ///数据库User表结构字段
-#[derive(Queryable, Insertable, Serialize, Deserialize, Debug, Selectable)]
+#[derive(Queryable, Insertable, Serialize, Deserialize, Debug, Clone, Selectable)]
 #[diesel(table_name = users)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 #[diesel(sql_type=Timestamp)]

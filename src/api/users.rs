@@ -6,23 +6,20 @@ use crate::model::users::{
     CaptchaResp, LoginReq, LoginResp, RegisterReq, RegisterResp, User, UserInfoResp,
 };
 use crate::schema::*;
+use crate::store::{get_captcha_store, get_token_store};
 use crate::utils::auth_captcha_utils;
-use crate::utils::auth_captcha_utils::get_captcha_cache;
-use crate::utils::database_utils::connect_database;
+use crate::utils::database_utils::{current_user, try_connect_database};
 use crate::utils::jwt_service::{
     generate_access_token, generate_refresh_token, refresh_access_token,
 };
 use crate::utils::operation_log_utils::{OP_LOGIN, record_operation};
-use crate::utils::password_utils::{hash_password, verify_password};
+use crate::utils::password_utils::{hash_password, verify_password_result};
 use chrono::Local;
 use diesel::prelude::*;
-use diesel::r2d2::{ConnectionManager, PooledConnection};
 use log::info;
-use moka::future::Cache;
 use salvo::http::StatusCode;
 use salvo::prelude::*;
 use salvo_oapi::endpoint;
-use std::sync::Arc;
 use uuid::Uuid;
 
 #[endpoint(
@@ -33,12 +30,17 @@ use uuid::Uuid;
 pub async fn get_auth_captcha(depot: &mut Depot) -> ApiOut<CaptchaResp> {
     let captcha = auth_captcha_utils::get_auth_captcha();
 
-    let cache = match get_captcha_cache(depot) {
-        Ok(value) => value,
-        Err(value) => return value,
+    let captcha_store = match get_captcha_store(depot) {
+        Ok(store) => store,
+        Err(err) => return ApiOut::err(err),
     };
 
-    cache.insert(captcha.id.clone(), captcha.text.clone()).await;
+    if let Err(err) = captcha_store
+        .insert(captcha.id.clone(), captcha.text.clone())
+        .await
+    {
+        return ApiOut::err(err);
+    }
 
     ApiOut::ok(CaptchaResp {
         captcha_id: captcha.id,
@@ -73,14 +75,20 @@ pub async fn register(depot: &mut Depot, req: &mut Request) -> ApiOut<RegisterRe
         return ApiOut::err(e);
     }
 
-    let mut conn = connect_database(depot);
+    let mut conn = match try_connect_database(depot) {
+        Ok(conn) => conn,
+        Err(err) => return ApiOut::err(err),
+    };
 
     //检查用户是否存在
-    let existing_user = users::table
+    let existing_user = match users::table
         .filter(users::username.eq(&register_req.username))
         .first::<User>(&mut conn)
         .optional()
-        .expect("查询用户失败");
+    {
+        Ok(user) => user,
+        Err(e) => return ApiOut::err(AppError::Internal(format!("查询用户失败: {}", e))),
+    };
 
     if existing_user.is_some() {
         return ApiOut::err(AppError::BadRequest(
@@ -113,10 +121,12 @@ pub async fn register(depot: &mut Depot, req: &mut Request) -> ApiOut<RegisterRe
     };
 
     //插入数据到数据库
-    diesel::insert_into(users::table)
+    if let Err(e) = diesel::insert_into(users::table)
         .values(&new_user)
         .execute(&mut conn)
-        .expect("插入新用户失败！");
+    {
+        return ApiOut::err(AppError::Internal(format!("插入新用户失败: {}", e)));
+    }
 
     ApiOut::ok(RegisterResp {
         username: register_req.username.to_string(),
@@ -136,7 +146,10 @@ pub async fn login(depot: &mut Depot, req: &mut Request) -> ApiOut<LoginResp> {
         return ApiOut::err(e);
     }
 
-    let mut conn = connect_database(depot);
+    let mut conn = match try_connect_database(depot) {
+        Ok(conn) => conn,
+        Err(err) => return ApiOut::err(err),
+    };
 
     //连接数据库查询用户
     let existing_user = match users::table
@@ -154,10 +167,15 @@ pub async fn login(depot: &mut Depot, req: &mut Request) -> ApiOut<LoginResp> {
     }
 
     //验证密码
-    if !verify_password(
+    let password_ok = match verify_password_result(
         login_req.password.clone().as_str(),
         existing_user.password.clone().as_str(),
     ) {
+        Ok(value) => value,
+        Err(err) => return ApiOut::err(err),
+    };
+
+    if !password_ok {
         return ApiOut::err(AppError::BadRequest("密码错误".to_string()));
     }
 
@@ -169,20 +187,25 @@ pub async fn login(depot: &mut Depot, req: &mut Request) -> ApiOut<LoginResp> {
     let user_uuid = match Uuid::parse_str(&user_id) {
         Ok(uuid) => uuid,
         Err(e) => {
-            return ApiOut::err(AppError::UnAuthorized(format!("无效的用户ID格式: {}", e)));
+            return ApiOut::err(AppError::unauthorized_with_code(
+                format!("无效的用户ID格式: {}", e),
+                "REFRESH_TOKEN_INVALID",
+            ));
         }
+    };
+
+    let token_store = match get_token_store(depot) {
+        Ok(store) => store,
+        Err(err) => return ApiOut::err(err),
     };
 
     match generate_access_token(&user_id, &username) {
         Ok(access_token_str) => match generate_refresh_token(&user_id, &username) {
             Ok(refresh_token_str) => {
-                //创建成功之后保存到数据库中//注意，后续可能要用redis存储，现在小项目无所谓
-                match update_database_token(
-                    user_uuid,
-                    access_token_str,
-                    refresh_token_str,
-                    &mut conn,
-                ) {
+                match token_store
+                    .save_tokens(user_uuid, access_token_str, refresh_token_str)
+                    .await
+                {
                     Ok(token_resp) => {
                         if let Err(e) = record_operation(
                             &mut conn,
@@ -219,7 +242,10 @@ pub async fn login(depot: &mut Depot, req: &mut Request) -> ApiOut<LoginResp> {
     description = "获取用户信息"
 )]
 pub async fn get_users_info(depot: &mut Depot) -> ApiOut<UserInfoResp> {
-    let current_user = depot.get::<User>("user").expect("未找到用户。");
+    let current_user = match current_user(depot) {
+        Ok(user) => user,
+        Err(err) => return ApiOut::err(err),
+    };
 
     let user_response_model = UserInfoResp {
         id: current_user.id,
@@ -240,8 +266,6 @@ pub async fn refresh_token(req: &mut Request, depot: &mut Depot) -> ApiOut<Token
         Err(e) => return ApiOut::err(e),
     };
 
-    let mut conn = connect_database(depot);
-
     let user_uuid = match Uuid::parse_str(&refresh_req.user_id) {
         Ok(uuid) => uuid,
         Err(e) => {
@@ -249,20 +273,25 @@ pub async fn refresh_token(req: &mut Request, depot: &mut Depot) -> ApiOut<Token
         }
     };
 
-    match users::table
-        .filter(users::id.eq(user_uuid))
-        .filter(users::refresh_token.eq(&refresh_req.refresh_token))
-        .first::<User>(&mut conn)
-        .optional()
+    let token_store = match get_token_store(depot) {
+        Ok(store) => store,
+        Err(err) => return ApiOut::err(err),
+    };
+
+    match token_store
+        .refresh_token_matches(user_uuid, &refresh_req.refresh_token)
+        .await
     {
-        Ok(Some(_)) => match refresh_access_token(&refresh_req.refresh_token) {
+        Ok(true) => match refresh_access_token(&refresh_req.refresh_token) {
             Ok(refresh_token_resp) => {
-                match update_database_token(
-                    user_uuid,
-                    refresh_token_resp.access_token,
-                    refresh_token_resp.refresh_token,
-                    &mut conn,
-                ) {
+                match token_store
+                    .save_tokens(
+                        user_uuid,
+                        refresh_token_resp.access_token,
+                        refresh_token_resp.refresh_token,
+                    )
+                    .await
+                {
                     Ok(token_resp) => ApiOut::ok(TokenResp {
                         access_token: token_resp.access_token,
                         refresh_token: token_resp.refresh_token,
@@ -270,51 +299,16 @@ pub async fn refresh_token(req: &mut Request, depot: &mut Depot) -> ApiOut<Token
                     Err(app_error) => ApiOut::Err(app_error),
                 }
             }
-            Err(e) => ApiOut::err(AppError::UnAuthorized(format!(
-                "刷新Token无效,请重新登录!{:?}",
-                e
-            ))),
+            Err(e) => ApiOut::err(AppError::unauthorized_with_code(
+                format!("刷新Token无效,请重新登录!{:?}", e),
+                "REFRESH_TOKEN_INVALID",
+            )),
         },
-        Ok(None) => ApiOut::err(AppError::UnAuthorized(
-            "未查询到刷新Token或刷新Token不一致,请重新登录!".to_string(),
+        Ok(false) => ApiOut::err(AppError::unauthorized_with_code(
+            "未查询到刷新Token或刷新Token不一致,请重新登录!",
+            "REFRESH_TOKEN_INVALID",
         )),
-        Err(e) => ApiOut::err(AppError::Internal(e.to_string())),
-    }
-}
-
-//更新数据库中的token,用在登录和刷新Token中
-fn update_database_token(
-    user_uuid: Uuid,
-    access_token_str: String,
-    refresh_token_str: String,
-    conn: &mut PooledConnection<ConnectionManager<PgConnection>>,
-) -> Result<TokenResp, AppError> {
-    let result = diesel::update(users::table.find(user_uuid))
-        .set((
-            users::access_token.eq(&access_token_str),
-            users::refresh_token.eq(&refresh_token_str),
-        ))
-        .execute(conn);
-
-    match result {
-        Ok(affected_rows) => {
-            if affected_rows == 0 {
-                Err(AppError::Internal(format!(
-                    "未找到对应的user_id{}",
-                    user_uuid
-                )))
-            } else {
-                let token_resp = TokenResp {
-                    access_token: access_token_str,
-                    refresh_token: refresh_token_str,
-                };
-                Ok(token_resp)
-            }
-        }
-        Err(e) => Err(AppError::Internal(format!(
-            "更新保存Token失败,请重试！'{}'",
-            e
-        ))),
+        Err(err) => ApiOut::err(err),
     }
 }
 
@@ -327,18 +321,18 @@ pub async fn auth_token(depot: &mut Depot, res: &mut Response, ctrl: &mut FlowCt
     let auth_token_owned = depot.jwt_auth_token().map(|s| s.to_string());
 
     // 辅助函数：返回统一格式的错误响应
-    let render_error = |res: &mut Response, code: StatusCode, msg: String| {
+    let render_error = |res: &mut Response, code: StatusCode, msg: String, err_code: Option<&str>| {
         res.status_code(code);
         res.render(Json(ApiResponse::<NoData> {
             data: None,
             code: code.as_u16(),
+            err_code: err_code.map(str::to_string),
             msg,
         }));
     };
 
     match auth_state {
         JwtAuthState::Authorized => {
-            info!("Token 有效");
             match token_data {
                 None => {
                     ctrl.skip_rest();
@@ -346,6 +340,7 @@ pub async fn auth_token(depot: &mut Depot, res: &mut Response, ctrl: &mut FlowCt
                         res,
                         StatusCode::UNAUTHORIZED,
                         "Token数据未找到!".to_string(),
+                        Some("ACCESS_TOKEN_INVALID"),
                     );
                 }
                 Some(token_data) => {
@@ -353,12 +348,14 @@ pub async fn auth_token(depot: &mut Depot, res: &mut Response, ctrl: &mut FlowCt
                     let current_timestamp = Local::now().naive_local().and_utc().timestamp();
                     if token_data.claims.exp < current_timestamp {
                         ctrl.skip_rest();
-                        render_error(res, StatusCode::FORBIDDEN, "Token过期".to_string());
+                        render_error(
+                            res,
+                            StatusCode::UNAUTHORIZED,
+                            "Token过期".to_string(),
+                            Some("ACCESS_TOKEN_EXPIRED"),
+                        );
                         return;
                     }
-
-                    //Token 有效 验证用户有效性
-                    let mut conn = connect_database(depot);
 
                     let user_id_uuid = match Uuid::parse_str(&token_data.claims.user_id) {
                         Ok(uuid) => uuid,
@@ -368,46 +365,67 @@ pub async fn auth_token(depot: &mut Depot, res: &mut Response, ctrl: &mut FlowCt
                                 res,
                                 StatusCode::UNAUTHORIZED,
                                 format!("无效的用户ID格式: {}", e),
+                                Some("ACCESS_TOKEN_INVALID"),
                             );
                             return;
                         }
                     };
 
-                    let existing_user = users::table
-                        .filter(users::username.eq(&token_data.claims.user_name))
-                        .filter(users::id.eq(user_id_uuid))
-                        .first::<User>(&mut conn)
-                        .optional()
-                        .expect("未找到该用户");
+                    let token_store = match get_token_store(depot) {
+                        Ok(store) => store,
+                        Err(err) => {
+                            ctrl.skip_rest();
+                            render_error(
+                                res,
+                                StatusCode::INTERNAL_SERVER_ERROR,
+                                err.to_string(),
+                                Some("TOKEN_STORE_UNAVAILABLE"),
+                            );
+                            return;
+                        }
+                    };
+
+                    let existing_user = match token_store
+                        .find_user_by_id_and_username(user_id_uuid, &token_data.claims.user_name)
+                        .await
+                    {
+                        Ok(user) => user,
+                        Err(err) => {
+                            ctrl.skip_rest();
+                            render_error(
+                                res,
+                                StatusCode::UNAUTHORIZED,
+                                err.to_string(),
+                                Some("ACCESS_TOKEN_INVALID"),
+                            );
+                            return;
+                        }
+                    };
 
                     if let Some(user) = existing_user {
-                        //连接数据库验证access_token是否存在或相等
                         if let Some(ref token) = auth_token_owned {
-                            match users::table
-                                .filter(users::id.eq(user_id_uuid))
-                                .filter(users::access_token.eq(token))
-                                .first::<User>(&mut conn)
-                                .optional()
-                            {
-                                Ok(Some(_)) => {
+                            match token_store.access_token_matches(user_id_uuid, token).await {
+                                Ok(true) => {
                                     //验证通过则插入用户信息
                                     depot.insert("user", user);
                                     //验证通过，继续执行后续handler，不返回任何内容
                                 }
-                                Ok(None) => {
+                                Ok(false) => {
                                     ctrl.skip_rest();
                                     render_error(
                                         res,
                                         StatusCode::UNAUTHORIZED,
                                         "数据库Token不一致！".to_string(),
+                                        Some("ACCESS_TOKEN_REVOKED"),
                                     );
                                 }
-                                Err(e) => {
+                                Err(err) => {
                                     ctrl.skip_rest();
                                     render_error(
                                         res,
                                         StatusCode::UNAUTHORIZED,
-                                        format!("数据库查询错误: {}", e),
+                                        err.to_string(),
+                                        Some("ACCESS_TOKEN_INVALID"),
                                     );
                                 }
                             }
@@ -417,6 +435,7 @@ pub async fn auth_token(depot: &mut Depot, res: &mut Response, ctrl: &mut FlowCt
                                 res,
                                 StatusCode::UNAUTHORIZED,
                                 format!("用户'{}'未找到!)", token_data.claims.user_name),
+                                Some("ACCESS_TOKEN_INVALID"),
                             );
                         }
                     } else {
@@ -425,6 +444,7 @@ pub async fn auth_token(depot: &mut Depot, res: &mut Response, ctrl: &mut FlowCt
                             res,
                             StatusCode::UNAUTHORIZED,
                             format!("用户'{}'未找到!)", token_data.claims.user_name),
+                            Some("ACCESS_TOKEN_INVALID"),
                         );
                     }
                 }
@@ -436,6 +456,7 @@ pub async fn auth_token(depot: &mut Depot, res: &mut Response, ctrl: &mut FlowCt
                 res,
                 StatusCode::UNAUTHORIZED,
                 "未找到Token，请检查Header".to_string(),
+                Some("ACCESS_TOKEN_MISSING"),
             );
         }
         JwtAuthState::Forbidden => {
@@ -444,7 +465,12 @@ pub async fn auth_token(depot: &mut Depot, res: &mut Response, ctrl: &mut FlowCt
                 None => "Token报错为None".to_string(),
                 Some(jwt_error) => format!("Token无效,{}", jwt_error),
             };
-            render_error(res, StatusCode::FORBIDDEN, msg);
+            render_error(
+                res,
+                StatusCode::UNAUTHORIZED,
+                msg,
+                Some("ACCESS_TOKEN_INVALID"),
+            );
         }
     }
 }
@@ -455,16 +481,10 @@ async fn validate_captcha(
     captcha_id: &str,
     captcha_code: &str,
 ) -> Result<(), AppError> {
-    // 从depot中获取验证码缓存
-    let cache = match depot.obtain::<Arc<Cache<String, String>>>() {
-        Ok(cache) => cache,
-        Err(_) => {
-            return Err(AppError::Internal("验证码缓存未初始化".to_string()));
-        }
-    };
+    let captcha_store = get_captcha_store(depot)?;
 
     // 根据验证码ID获取缓存中的验证码文本
-    let cached = cache.get(captcha_id).await;
+    let cached = captcha_store.get(captcha_id).await?;
     let cached = match cached {
         Some(v) => v,
         None => {
@@ -478,7 +498,7 @@ async fn validate_captcha(
     }
 
     // 验证码验证通过后删除缓存，防止复用
-    cache.invalidate(captcha_id).await;
+    captcha_store.invalidate(captcha_id).await?;
 
     // 验证通过，返回Ok
     Ok(())

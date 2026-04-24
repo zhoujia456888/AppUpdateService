@@ -5,19 +5,20 @@ use crate::model::app_manage::{
 };
 use crate::model::body::parse_json_body;
 use crate::model::error::{ApiOut, AppError};
-use crate::model::users::User;
 use crate::schema::*;
 use crate::utils::apk_utils::extract_apk_metadata;
-use crate::utils::database_utils::connect_database;
+use crate::utils::database_utils::{current_user, try_connect_database};
 use crate::utils::operation_log_utils::{
     OP_DELETE_APP, OP_PUBLISH_APP, OP_UPLOAD_APP_FILE, record_operation,
 };
 use chrono::Local;
+use diesel::PgTextExpressionMethods;
 use diesel::RunQueryDsl;
 use diesel::prelude::*;
 use salvo::oapi::extract::FormFile;
 use salvo::prelude::*;
-use std::path::Path;
+use std::path::{Component, Path, PathBuf};
+use tracing::info;
 use uuid::Uuid;
 
 const APP_MANAGE_DIR: &str = "app_manage";
@@ -30,7 +31,6 @@ const PUBLIC_APP_MANAGE_PREFIX: &str = "/api/public/app_manage";
     description = "上传APP文件"
 )]
 pub async fn upload_app_file(depot: &mut Depot, req: &mut Request) -> ApiOut<UploadAppFileResp> {
-    println!("进入 upload_app_file 函数");
     // 默认安全上限仅 64KB，上传 APK 会在 multipart 解析阶段失败。
     // 上传文件大小上限设置为 1GB
     req.set_secure_max_size(1024 * 1024 * 1024);
@@ -82,7 +82,7 @@ pub async fn upload_app_file(depot: &mut Depot, req: &mut Request) -> ApiOut<Upl
     let stamped_filename = build_timestamped_filename(filename, &timestamp);
     let dest = format!("{}/{}", APK_UPLOAD_DIR, stamped_filename);
 
-    println!("upload: {}", dest);
+    info!("uploading apk to {}", dest);
 
     if let Err(e) = std::fs::create_dir_all(APK_UPLOAD_DIR) {
         return ApiOut::err(AppError::Internal(format!("创建上传目录失败: {}", e)));
@@ -103,10 +103,16 @@ pub async fn upload_app_file(depot: &mut Depot, req: &mut Request) -> ApiOut<Upl
             }
         };
 
-        let current_user = depot.get::<User>("user").expect("未找到用户。");
+        let current_user = match current_user(depot) {
+            Ok(user) => user,
+            Err(err) => return ApiOut::err(err),
+        };
         let current_user_id = current_user.id;
         let current_username = current_user.username.clone();
-        let mut conn = connect_database(depot);
+        let mut conn = match try_connect_database(depot) {
+            Ok(conn) => conn,
+            Err(err) => return ApiOut::err(err),
+        };
         if let Err(e) = record_operation(
             &mut conn,
             current_user_id,
@@ -187,28 +193,59 @@ pub async fn upload_app_file_complete(
         return ApiOut::err(AppError::BadRequest("文件路径不能为空".to_string()));
     }
 
-    let mut conn = connect_database(depot);
-    let current_user = depot.get::<User>("user").expect("未找到用户。");
+    let apk_path = match resolve_uploaded_apk_path(&get_upload_app_file_complete_req.file_path) {
+        Ok(path) => path,
+        Err(err) => return ApiOut::err(err),
+    };
+
+    let apk_filename = match apk_path.file_name().and_then(|value| value.to_str()) {
+        Some(name) if !name.trim().is_empty() => name.to_string(),
+        _ => return ApiOut::err(AppError::BadRequest("无效的上传文件路径".to_string())),
+    };
+
+    let apk_metadata = match extract_apk_metadata(&apk_path, &apk_filename, Path::new(APP_MANAGE_DIR))
+    {
+        Ok(metadata) => metadata,
+        Err(e) => {
+            return ApiOut::err(AppError::Unprocessable(format!(
+                "重新解析已上传 APK 失败: {}",
+                e
+            )));
+        }
+    };
+
+    let mut conn = match try_connect_database(depot) {
+        Ok(conn) => conn,
+        Err(err) => return ApiOut::err(err),
+    };
+    let current_user = match current_user(depot) {
+        Ok(user) => user,
+        Err(err) => return ApiOut::err(err),
+    };
     let current_user_id = current_user.id;
     let current_username = current_user.username.clone();
 
     let now = Local::now().naive_local();
+    let server_file_path = to_public_app_manage_file_url("apk", &apk_metadata.file_name);
 
     let new_app = AppManage {
         id: Uuid::new_v4(),
-        app_name: get_upload_app_file_complete_req.app_name.clone(),
-        app_download_url: get_upload_app_file_complete_req.file_path.clone(),
+        app_name: apk_metadata.app_name.clone(),
+        app_download_url: server_file_path.clone(),
         create_user_id: current_user_id,
         create_time: now,
         update_time: now,
         is_delete: false,
-        file_path: Some(get_upload_app_file_complete_req.file_path.clone()),
-        file_name: Some(get_upload_app_file_complete_req.file_name.clone()),
-        package_name: Some(get_upload_app_file_complete_req.package_name.clone()),
-        app_icon_path: Some(get_upload_app_file_complete_req.app_icon_path.clone()),
-        version_name: Some(get_upload_app_file_complete_req.version_name.clone()),
-        version_code: get_upload_app_file_complete_req.version_code.clone(),
-        file_size: get_upload_app_file_complete_req.file_size,
+        file_path: Some(server_file_path),
+        file_name: Some(apk_metadata.file_name.clone()),
+        package_name: Some(apk_metadata.package_name.clone()),
+        app_icon_path: apk_metadata
+            .app_icon_path
+            .as_deref()
+            .map(|path| to_public_app_manage_file_url("icon", path)),
+        version_name: apk_metadata.version_name.clone(),
+        version_code: apk_metadata.version_code.unwrap_or_default(),
+        file_size: apk_metadata.file_size as i64,
         channel_name: Some(get_upload_app_file_complete_req.channel_name.clone()),
         channel_id: get_upload_app_file_complete_req.channel_id,
         update_log: Some(get_upload_app_file_complete_req.update_log.clone()),
@@ -226,8 +263,8 @@ pub async fn upload_app_file_complete(
                 OP_PUBLISH_APP,
                 format!(
                     "发布应用'{}'成功，版本：{}",
-                    get_upload_app_file_complete_req.app_name,
-                    get_upload_app_file_complete_req.version_name
+                    new_app.app_name,
+                    new_app.version_name.clone().unwrap_or_default()
                 ),
             ) {
                 return ApiOut::err(e);
@@ -236,8 +273,8 @@ pub async fn upload_app_file_complete(
             ApiOut::ok(UploadAppFileCompleteResp {
                 upload_app_complete_info: format!(
                     "应用'{}' (版本：{}) 发布成功！",
-                    get_upload_app_file_complete_req.app_name,
-                    get_upload_app_file_complete_req.version_name
+                    new_app.app_name,
+                    new_app.version_name.clone().unwrap_or_default()
                 ),
             })
         }
@@ -259,27 +296,36 @@ pub async fn get_app_list_by_page(depot: &mut Depot, req: &mut Request) -> ApiOu
         ));
     }
 
-    let user_id = depot.get::<User>("user").expect("未找到用户。").id;
-    let mut conn = connect_database(depot);
+    let user_id = match current_user(depot) {
+        Ok(user) => user.id,
+        Err(err) => return ApiOut::err(err),
+    };
+    let mut conn = match try_connect_database(depot) {
+        Ok(conn) => conn,
+        Err(err) => return ApiOut::err(err),
+    };
 
     let keyword = get_app_list_req.search_key.trim();
 
-    let all_user_apps = match app_manage::table
+    let mut total_query = app_manage::table
         .filter(app_manage::create_user_id.eq(&user_id))
         .filter(app_manage::is_delete.eq(false))
-        .order(app_manage::create_time.desc())
-        .load::<AppManage>(&mut conn)
-    {
-        Ok(list) => list,
-        Err(e) => return ApiOut::err(AppError::Internal(format!("获取应用列表失败:{}", e))),
+        .into_boxed();
+
+    if !keyword.is_empty() {
+        let pattern = format!("%{}%", keyword);
+        total_query = total_query.filter(
+            app_manage::app_name
+                .ilike(pattern.clone())
+                .or(app_manage::package_name.ilike(pattern.clone()))
+                .or(app_manage::channel_name.ilike(pattern)),
+        );
+    }
+
+    let total_app_count = match total_query.count().get_result::<i64>(&mut conn) {
+        Ok(count) => count,
+        Err(e) => return ApiOut::err(AppError::Internal(format!("获取应用总数失败:{}", e))),
     };
-
-    let filtered_apps: Vec<AppManage> = all_user_apps
-        .into_iter()
-        .filter(|app| matches_app_search(app, keyword))
-        .collect();
-
-    let total_app_count = filtered_apps.len() as i64;
 
     let total_page_count = if total_app_count == 0 {
         0
@@ -287,9 +333,30 @@ pub async fn get_app_list_by_page(depot: &mut Depot, req: &mut Request) -> ApiOu
         (total_app_count + get_app_list_req.page_size - 1) / get_app_list_req.page_size
     };
 
-    let offset = (get_app_list_req.page_index * get_app_list_req.page_size) as usize;
-    let limit = get_app_list_req.page_size as usize;
-    let all_app_list: Vec<AppManage> = filtered_apps.into_iter().skip(offset).take(limit).collect();
+    let mut data_query = app_manage::table
+        .filter(app_manage::create_user_id.eq(&user_id))
+        .filter(app_manage::is_delete.eq(false))
+        .into_boxed();
+
+    if !keyword.is_empty() {
+        let pattern = format!("%{}%", keyword);
+        data_query = data_query.filter(
+            app_manage::app_name
+                .ilike(pattern.clone())
+                .or(app_manage::package_name.ilike(pattern.clone()))
+                .or(app_manage::channel_name.ilike(pattern)),
+        );
+    }
+
+    let all_app_list = match data_query
+        .order(app_manage::create_time.desc())
+        .limit(get_app_list_req.page_size)
+        .offset(get_app_list_req.page_index * get_app_list_req.page_size)
+        .load::<AppManage>(&mut conn)
+    {
+        Ok(list) => list,
+        Err(e) => return ApiOut::err(AppError::Internal(format!("获取应用列表失败:{}", e))),
+    };
 
     let app_list = all_app_list
         .into_iter()
@@ -301,24 +368,6 @@ pub async fn get_app_list_by_page(depot: &mut Depot, req: &mut Request) -> ApiOu
         total_app_count,
         total_page_count,
     })
-}
-
-fn matches_app_search(app: &AppManage, keyword: &str) -> bool {
-    if keyword.is_empty() {
-        return true;
-    }
-
-    app.app_name.contains(keyword)
-        || app
-            .package_name
-            .as_deref()
-            .unwrap_or_default()
-            .contains(keyword)
-        || app
-            .channel_name
-            .as_deref()
-            .unwrap_or_default()
-            .contains(keyword)
 }
 
 #[endpoint(
@@ -337,8 +386,14 @@ pub async fn delete_app(depot: &mut Depot, req: &mut Request) -> ApiOut<DeleteAp
         return ApiOut::err(AppError::BadRequest("应用名称不能为空".to_string()));
     }
 
-    let mut conn = connect_database(depot);
-    let current_user = depot.get::<User>("user").expect("未找到用户。");
+    let mut conn = match try_connect_database(depot) {
+        Ok(conn) => conn,
+        Err(err) => return ApiOut::err(err),
+    };
+    let current_user = match current_user(depot) {
+        Ok(user) => user,
+        Err(err) => return ApiOut::err(err),
+    };
     let user_id = current_user.id;
     let username = current_user.username.clone();
 
@@ -390,7 +445,10 @@ pub async fn get_app_info(depot: &mut Depot, req: &mut Request) -> ApiOut<GetApp
         Err(e) => return ApiOut::err(e),
     };
 
-    let mut conn = connect_database(depot);
+    let mut conn = match try_connect_database(depot) {
+        Ok(conn) => conn,
+        Err(err) => return ApiOut::err(err),
+    };
     let app = match app_manage::table
         .filter(app_manage::is_delete.eq(false))
         .filter(app_manage::id.eq(get_app_info_req.app_id))
@@ -422,7 +480,10 @@ pub async fn app_check_update(depot: &mut Depot, req: &mut Request) -> ApiOut<Ap
         return ApiOut::err(e);
     }
 
-    let mut conn = connect_database(depot);
+    let mut conn = match try_connect_database(depot) {
+        Ok(conn) => conn,
+        Err(err) => return ApiOut::err(err),
+    };
     let app = match app_manage::table
         .filter(app_manage::is_delete.eq(false))
         .filter(app_manage::package_name.eq(Some(app_check_update_req.package_name.clone())))
@@ -486,6 +547,56 @@ fn get_app_resp_item(app: &AppManage) -> GetAppListRespItem {
         update_log: app.update_log.clone().unwrap_or_default(),
         create_time: app.create_time,
         update_time: app.update_time,
+    }
+}
+
+fn resolve_uploaded_apk_path(file_path: &str) -> Result<PathBuf, AppError> {
+    let Some((path_part, query_part)) = file_path.split_once('?') else {
+        return Err(AppError::BadRequest("文件路径格式无效".to_string()));
+    };
+
+    if path_part != format!("{PUBLIC_APP_MANAGE_PREFIX}/apk") {
+        return Err(AppError::BadRequest("文件路径不是受信任的上传 APK 地址".to_string()));
+    }
+
+    let filename = query_part
+        .split('&')
+        .find_map(|pair| pair.strip_prefix("name="))
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| AppError::BadRequest("文件路径缺少 name 参数".to_string()))?;
+
+    let relative_path = Path::new(filename);
+    if relative_path.components().any(|component| {
+        matches!(
+            component,
+            Component::ParentDir | Component::RootDir | Component::Prefix(_)
+        )
+    }) {
+        return Err(AppError::FORBIDDEN("非法文件路径".to_string()));
+    }
+
+    let full_path = PathBuf::from(APK_UPLOAD_DIR).join(relative_path);
+    if !full_path.is_file() {
+        return Err(AppError::NotFound("上传文件不存在".to_string()));
+    }
+
+    Ok(full_path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resolve_uploaded_apk_path_rejects_non_public_prefix() {
+        let result = resolve_uploaded_apk_path("/other/path?name=test.apk");
+        assert!(matches!(result, Err(AppError::BadRequest(_))));
+    }
+
+    #[test]
+    fn resolve_uploaded_apk_path_rejects_traversal() {
+        let result = resolve_uploaded_apk_path("/api/public/app_manage/apk?name=../test.apk");
+        assert!(matches!(result, Err(AppError::FORBIDDEN(_))));
     }
 }
 

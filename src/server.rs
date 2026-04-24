@@ -6,9 +6,9 @@ use crate::api::users::{auth_token, user_router_not_auth, users_router};
 use crate::db::establish_connection_pool;
 use crate::middleware::access_log::AccessLog;
 use crate::model::jwt::{AccessTokenClaims, get_jwt_secret_key};
+use crate::store::{CaptchaStore, PostgresCaptchaStore, PostgresTokenStore, TokenStore};
 use crate::utils::app_manage_cleanup_task::start_app_manage_cleanup_task;
 use crate::utils::json_error_catcher::json_error_catcher;
-use moka::future::Cache;
 use salvo::catcher::Catcher;
 use salvo::fs::NamedFile;
 use salvo::jwt_auth::{ConstDecoder, HeaderFinder};
@@ -17,7 +17,6 @@ use salvo_oapi::SecurityScheme;
 use salvo_oapi::security::{Http, HttpAuthScheme};
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
-use std::time::Duration;
 use tracing::info;
 
 const PUBLIC_APP_MANAGE_DIR: &str = "app_manage";
@@ -63,11 +62,8 @@ pub async fn run() {
     let pool = Arc::new(establish_connection_pool());
     start_app_manage_cleanup_task(pool.clone());
 
-    //登录验证码缓存
-    let captcha_cache: Cache<String, String> = Cache::builder()
-        .time_to_live(Duration::from_secs(60 * 10))
-        .max_capacity(10_000)
-        .build();
+    let captcha_store: Arc<dyn CaptchaStore> = Arc::new(PostgresCaptchaStore::new(pool.clone()));
+    let token_store: Arc<dyn TokenStore> = Arc::new(PostgresTokenStore::new(pool.clone()));
 
     let auth_handler: JwtAuth<AccessTokenClaims, _> =
         JwtAuth::new(ConstDecoder::from_secret(get_jwt_secret_key().as_bytes()))
@@ -79,7 +75,11 @@ pub async fn run() {
     //添加数据库配置
     let router = Router::new()
         .hoop(AccessLog {})
-        .hoop(affix_state::inject(pool).inject(Arc::new(captcha_cache)));
+        .hoop(
+            affix_state::inject(pool)
+                .inject(captcha_store)
+                .inject(token_store),
+        );
 
     // 添加公开接口：不需要 Token，可直接访问
     let public_router = build_public_router();

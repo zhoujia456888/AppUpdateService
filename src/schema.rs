@@ -34,6 +34,15 @@ diesel::table! {
 }
 
 diesel::table! {
+    auth_captcha (captcha_id) {
+        captcha_id -> Varchar,
+        captcha_text -> Varchar,
+        create_time -> Timestamp,
+        expires_at -> Timestamp,
+    }
+}
+
+diesel::table! {
     operation_log (id) {
         id -> Uuid,
         user_id -> Uuid,
@@ -63,4 +72,10 @@ diesel::joinable!(app_manage -> app_channel (channel_id));
 diesel::joinable!(app_manage -> users (create_user_id));
 diesel::joinable!(operation_log -> users (user_id));
 
-diesel::allow_tables_to_appear_in_same_query!(app_channel, app_manage, operation_log, users,);
+diesel::allow_tables_to_appear_in_same_query!(
+    app_channel,
+    app_manage,
+    auth_captcha,
+    operation_log,
+    users,
+);

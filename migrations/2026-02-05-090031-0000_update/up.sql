@@ -55,3 +55,13 @@ CREATE TABLE "operation_log"
     "create_time"      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_operation_log_users FOREIGN KEY (user_id) REFERENCES users (id)
 );
+
+CREATE TABLE "auth_captcha"
+(
+    "captcha_id"   VARCHAR   NOT NULL PRIMARY KEY,
+    "captcha_text" VARCHAR   NOT NULL,
+    "create_time"  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "expires_at"   TIMESTAMP NOT NULL
+);
+
+CREATE INDEX "idx_auth_captcha_expires_at" ON "auth_captcha" ("expires_at");

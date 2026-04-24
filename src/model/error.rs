@@ -1,6 +1,6 @@
 use crate::model::response::{ApiResponse, JSON_WRITTEN_KEY};
 use salvo::oapi::endpoint::EndpointOutRegister;
-use salvo::oapi::{ToResponse, ToSchema};
+use salvo::oapi::{ComposeSchema, ToResponse, ToSchema};
 use salvo::prelude::*;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -28,6 +28,12 @@ pub enum AppError {
     ///禁止
     #[error("{0}")]
     FORBIDDEN(String),
+    #[error("{msg}")]
+    Custom {
+        status: StatusCode,
+        msg: String,
+        err_code: Option<String>,
+    },
 }
 
 impl AppError {
@@ -39,6 +45,30 @@ impl AppError {
             AppError::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::UnAuthorized(_) => StatusCode::UNAUTHORIZED,
             AppError::FORBIDDEN(_) => StatusCode::FORBIDDEN,
+            AppError::Custom { status, .. } => *status,
+        }
+    }
+
+    pub fn err_code(&self) -> Option<String> {
+        match self {
+            AppError::BadRequest(_) => Some("BAD_REQUEST".to_string()),
+            AppError::NotFound(_) => Some("NOT_FOUND".to_string()),
+            AppError::Unprocessable(_) => Some("UNPROCESSABLE_ENTITY".to_string()),
+            AppError::Internal(_) => Some("INTERNAL_SERVER_ERROR".to_string()),
+            AppError::UnAuthorized(_) => Some("UNAUTHORIZED".to_string()),
+            AppError::FORBIDDEN(_) => Some("FORBIDDEN".to_string()),
+            AppError::Custom { err_code, .. } => err_code.clone(),
+        }
+    }
+
+    pub fn unauthorized_with_code(
+        msg: impl Into<String>,
+        err_code: impl Into<String>,
+    ) -> Self {
+        AppError::Custom {
+            status: StatusCode::UNAUTHORIZED,
+            msg: msg.into(),
+            err_code: Some(err_code.into()),
         }
     }
 
@@ -46,6 +76,7 @@ impl AppError {
         ApiResponse {
             data: None,
             code: self.http_status().as_u16(),
+            err_code: self.err_code(),
             msg: self.to_string(),
         }
     }
@@ -101,7 +132,7 @@ where
 /// OpenAPI：ApiOut<T> 自动挂 200 + 常见错误码
 impl<T> EndpointOutRegister for ApiOut<T>
 where
-    T: ToSchema + 'static,
+    T: ToSchema + ComposeSchema + 'static,
 {
     fn register(components: &mut salvo::oapi::Components, operation: &mut salvo::oapi::Operation) {
         // 200 成功
@@ -113,6 +144,8 @@ where
         let mut op = std::mem::take(operation);
         for sc in [
             StatusCode::BAD_REQUEST,
+            StatusCode::UNAUTHORIZED,
+            StatusCode::FORBIDDEN,
             StatusCode::NOT_FOUND,
             StatusCode::UNPROCESSABLE_ENTITY,
             StatusCode::INTERNAL_SERVER_ERROR,

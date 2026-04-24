@@ -1,4 +1,4 @@
-use salvo::oapi::ToSchema;
+use salvo::oapi::{ComposeSchema, ToSchema};
 use salvo::prelude::*;
 use serde::{Deserialize, Serialize};
 
@@ -12,6 +12,8 @@ where
     pub data: Option<T>,
     /// 标准 code：直接使用 HTTP 状态码数字（200/400/404/422/500...）
     pub code: u16,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub err_code: Option<String>,
     pub msg: String,
 }
 
@@ -23,14 +25,20 @@ where
         Self {
             data: Some(data),
             code: StatusCode::OK.as_u16(),
+            err_code: None,
             msg: "ok".to_string(),
         }
     }
 
-    pub fn err(status: StatusCode, msg: impl Into<String>) -> Self {
+    pub fn err(
+        status: StatusCode,
+        msg: impl Into<String>,
+        err_code: Option<impl Into<String>>,
+    ) -> Self {
         Self {
             data: None,
             code: status.as_u16(),
+            err_code: err_code.map(Into::into),
             msg: msg.into(),
         }
     }
@@ -56,7 +64,7 @@ where
 /// OpenAPI：让 ApiResponse<T> 可作为 endpoint 输出类型注册
 impl<T> EndpointOutRegister for ApiResponse<T>
 where
-    T: ToSchema + 'static,
+    T: ToSchema + ComposeSchema + 'static,
 {
     fn register(components: &mut salvo::oapi::Components, operation: &mut salvo::oapi::Operation) {
         <Json<ApiResponse<T>> as EndpointOutRegister>::register(components, operation);

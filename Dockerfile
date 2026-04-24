@@ -9,6 +9,7 @@ RUN apt-get update \
 
 # 先复制清单文件，尽量利用 Docker 缓存
 COPY Cargo.toml Cargo.lock ./
+COPY vendor ./vendor
 RUN mkdir src \
     && printf "fn main() {}\n" > src/main.rs \
     && cargo build --release
@@ -16,6 +17,7 @@ RUN mkdir src \
 # 复制真正源码后重新构建
 COPY src ./src
 COPY migrations ./migrations
+COPY vendor ./vendor
 RUN cargo build --release --bin AppUpdateService
 
 

@@ -1,3 +1,4 @@
+use crate::model::error::AppError;
 use argon2::password_hash::SaltString;
 use argon2::password_hash::rand_core::OsRng;
 use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
@@ -17,8 +18,14 @@ pub fn hash_password(password: &str) -> Result<String, String> {
 
 /// ✅ Verify a plaintext password against a hashed one
 pub fn verify_password(password: &str, hash: &str) -> bool {
-    let parsed_hash = PasswordHash::new(hash).unwrap();
-    Argon2::default()
+    verify_password_result(password, hash).unwrap_or(false)
+}
+
+pub fn verify_password_result(password: &str, hash: &str) -> Result<bool, AppError> {
+    let parsed_hash = PasswordHash::new(hash)
+        .map_err(|e| AppError::Internal(format!("密码哈希格式无效: {}", e)))?;
+
+    Ok(Argon2::default()
         .verify_password(password.as_bytes(), &parsed_hash)
-        .is_ok()
+        .is_ok())
 }

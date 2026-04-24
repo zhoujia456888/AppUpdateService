@@ -28,6 +28,7 @@ pub async fn json_error_catcher(depot: &mut Depot, res: &mut Response, ctrl: &mu
     res.render(Json(ApiResponse::<NoData> {
         data: None,
         code: status.as_u16(),
+        err_code: Some(status.as_str().to_string()),
         msg: msg.to_string(),
     }));
 

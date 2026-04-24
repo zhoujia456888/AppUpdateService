@@ -1,6 +1,7 @@
 pub mod app_channel;
 pub mod app_manage;
 pub mod body;
+pub mod captcha;
 pub mod error;
 pub mod jwt;
 pub mod operation_log;
