@@ -12,11 +12,10 @@ use crate::utils::database_utils::{current_user, try_connect_database};
 use crate::utils::jwt_service::{
     generate_access_token, generate_refresh_token, refresh_access_token,
 };
-use crate::utils::operation_log_utils::{OP_LOGIN, record_operation};
+use crate::utils::operation_log_utils::{record_operation, OP_LOGIN};
 use crate::utils::password_utils::{hash_password, verify_password_result};
 use chrono::Local;
 use diesel::prelude::*;
-use log::info;
 use salvo::http::StatusCode;
 use salvo::prelude::*;
 use salvo_oapi::endpoint;

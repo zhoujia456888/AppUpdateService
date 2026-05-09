@@ -7,56 +7,76 @@ use tracing_subscriber::filter;
 use tracing_subscriber::{Layer, layer::SubscriberExt, util::SubscriberInitExt};
 
 pub struct LoggingGuard {
-    _app_guard: tracing_appender::non_blocking::WorkerGuard,
-    _access_guard: tracing_appender::non_blocking::WorkerGuard,
+    _app_guard: Option<tracing_appender::non_blocking::WorkerGuard>,
+    _access_guard: Option<tracing_appender::non_blocking::WorkerGuard>,
 }
 
 pub fn init_logging(logs_dir: impl Into<PathBuf>, retention_days: u64) -> Result<LoggingGuard> {
     let logs_dir = logs_dir.into();
-    std::fs::create_dir_all(&logs_dir)?;
 
-    // 按天滚动
-    let app_file = tracing_appender::rolling::daily(&logs_dir, "app.log");
-    let access_file = tracing_appender::rolling::daily(&logs_dir, "access.log");
-
-    let (app_nb, app_guard) = tracing_appender::non_blocking::NonBlockingBuilder::default()
-        .buffered_lines_limit(50_000)
-        .lossy(true)
-        .finish(app_file);
-
-    let (access_nb, access_guard) = tracing_appender::non_blocking::NonBlockingBuilder::default()
-        .buffered_lines_limit(50_000)
-        .lossy(true)
-        .finish(access_file);
-
-    // 业务日志（排除 access）
-    let app_layer = tracing_subscriber::fmt::layer()
+    // 控制台（容器/开发都需要）：输出到 stdout，方便 `docker logs` 排障
+    let console_filter =
+        tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into());
+    let console_layer = tracing_subscriber::fmt::layer()
         .with_ansi(false)
         .with_target(true)
         .with_level(true)
-        .with_writer(app_nb)
-        .with_filter(filter::filter_fn(|meta| meta.target() != "access"));
+        .with_filter(console_filter);
 
-    // access 日志（只写必要字段，减少 IO）
-    let access_layer = tracing_subscriber::fmt::layer()
-        .with_ansi(false)
-        .with_target(false)
-        .with_level(false)
-        .with_writer(access_nb)
-        .with_filter(filter::filter_fn(|meta| meta.target() == "access"));
+    // 文件日志：失败时退化为仅控制台日志（避免容器无任何输出，难以排障）
+    let mut app_guard = None;
+    let mut access_guard = None;
+    let (app_layer, access_layer) = match std::fs::create_dir_all(&logs_dir) {
+        Ok(()) => {
+            // 按天滚动
+            let app_file = tracing_appender::rolling::daily(&logs_dir, "app.log");
+            let access_file = tracing_appender::rolling::daily(&logs_dir, "access.log");
 
-    // 控制台（开发用）
-    let console_filter =
-        tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into());
-    let console_layer = tracing_subscriber::fmt::layer().with_filter(console_filter);
+            let (app_nb, g1) = tracing_appender::non_blocking::NonBlockingBuilder::default()
+                .buffered_lines_limit(50_000)
+                .lossy(true)
+                .finish(app_file);
+            let (access_nb, g2) = tracing_appender::non_blocking::NonBlockingBuilder::default()
+                .buffered_lines_limit(50_000)
+                .lossy(true)
+                .finish(access_file);
+            app_guard = Some(g1);
+            access_guard = Some(g2);
 
-    tracing_subscriber::registry()
-        .with(console_layer)
-        .with(app_layer)
-        .with(access_layer)
-        .init();
+            // 业务日志（排除 access）
+            let app_layer = tracing_subscriber::fmt::layer()
+                .with_ansi(false)
+                .with_target(true)
+                .with_level(true)
+                .with_writer(app_nb)
+                .with_filter(filter::filter_fn(|meta| meta.target() != "access"));
 
-    spawn_retention_cleanup(logs_dir.clone(), retention_days);
+            // access 日志（只写必要字段，减少 IO）
+            let access_layer = tracing_subscriber::fmt::layer()
+                .with_ansi(false)
+                .with_target(false)
+                .with_level(false)
+                .with_writer(access_nb)
+                .with_filter(filter::filter_fn(|meta| meta.target() == "access"));
+
+            (Some(app_layer), Some(access_layer))
+        }
+        Err(e) => {
+            eprintln!(
+                "warn: failed to create logs dir {:?}: {e}; falling back to console-only logging",
+                logs_dir
+            );
+            (None, None)
+        }
+    };
+
+    let subscriber = tracing_subscriber::registry().with(console_layer);
+    if let (Some(app_layer), Some(access_layer)) = (app_layer, access_layer) {
+        subscriber.with(app_layer).with(access_layer).init();
+        spawn_retention_cleanup(logs_dir.clone(), retention_days);
+    } else {
+        subscriber.init();
+    }
 
     Ok(LoggingGuard {
         _app_guard: app_guard,

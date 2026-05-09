@@ -1,0 +1,54 @@
+services:
+  app_update_service:
+    image: app_update_service
+    container_name: app_update_service
+    build:
+      context: .
+      dockerfile: Dockerfile
+      no_cache: true
+    env_file:
+      - .env.production
+    environment:
+      DATABASE_URL: postgres://postgres:appupdate123456@postgres:5432/AppUpdateDataBase
+      RUST_BACKTRACE: "full"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "5800:5800"
+    volumes:
+      - app_update_service_logs:/app/logs
+      - app_update_service_manage:/app/app_manage
+    restart: unless-stopped
+    pull_policy: build
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:5800/api/public/ping >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+
+  postgres:
+    image: postgres:18.0-bookworm
+    container_name: app_update_service_postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: appupdate123456
+      POSTGRES_DB: AppUpdateDataBase
+    volumes:
+      - app_update_service_pgdata:/var/lib/postgresql
+    restart: unless-stopped
+    pull_policy: if_not_present
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d AppUpdateDataBase"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks:
+      default:
+        aliases:
+          - postgres
+
+volumes:
+  app_update_service_logs:
+  app_update_service_manage:
+  app_update_service_pgdata:

@@ -15,6 +15,7 @@ use salvo::jwt_auth::{ConstDecoder, HeaderFinder};
 use salvo::prelude::*;
 use salvo_oapi::SecurityScheme;
 use salvo_oapi::security::{Http, HttpAuthScheme};
+use std::future;
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 use tracing::info;
@@ -110,6 +111,9 @@ pub async fn run() {
 
     let service = service.catcher(catcher);
     Server::new(acceptor).serve(service).await;
+
+    // 显式阻塞避免进程“正常退出”导致容器重启
+    future::pending::<()>().await;
 }
 
 // 公开应用图标文件
