@@ -7,18 +7,13 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends pkg-config libpq-dev ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# 先复制清单文件，尽量利用 Docker 缓存
+# 直接复制真实源码，避免 IDEA/BuildKit 构建上下文异常时把占位 main.rs 打进镜像
 COPY Cargo.toml Cargo.lock ./
-COPY vendor ./vendor
-RUN mkdir src \
-    && printf "fn main() {}\n" > src/main.rs \
-    && cargo build --release
-
-# 复制真正源码后重新构建
 COPY src ./src
 COPY migrations ./migrations
 COPY vendor ./vendor
-# 构建前自检：确保 src/main.rs 不是占位文件，避免生成“秒退”的空二进制导致容器无限重启
+
+# 构建前自检：确保 src/main.rs 是正式入口，避免生成“秒退”的空二进制导致容器无限重启
 RUN test -f src/main.rs \
     && grep -q "tokio::main" src/main.rs \
     && grep -q "server::run" src/main.rs
