@@ -16,6 +16,8 @@ pub struct AppChannel {
     pub id: Uuid,
     ///渠道名称
     pub channel_name: String,
+    ///渠道备注
+    pub remark: Option<String>,
     ///创建者id
     pub create_user_id: Uuid,
     ///用户创建时间
@@ -23,7 +25,7 @@ pub struct AppChannel {
     ///渠道更新时间
     pub update_time: NaiveDateTime,
     ///是否删除
-    pub is_delete: bool,
+    pub is_delete: bool
 }
 
 ///创建应用渠道请求参数
@@ -32,6 +34,9 @@ pub struct AppChannel {
 pub struct CreateAppChannelReq {
     ///渠道名称
     pub channel_name: String,
+    ///渠道备注
+    #[serde(default)]
+    pub remark: String,
 }
 
 ///创建应用渠道返回参数
@@ -39,6 +44,8 @@ pub struct CreateAppChannelReq {
 pub struct CreateAppChannelResp {
     ///渠道名称
     pub channel_name: String,
+    ///渠道备注
+    pub remark: String,
     ///创建渠道信息
     pub create_info: String,
 }
@@ -72,6 +79,8 @@ pub struct GetAppChannelListRespItem {
     pub channel_id: Uuid,
     ///渠道名称
     pub channel_name: String,
+    ///渠道备注
+    pub remark: String,
     ///创建渠道时间
     pub create_time: NaiveDateTime,
     ///更新渠道时间
@@ -103,6 +112,9 @@ pub struct UpdateAppChannelReq {
     pub channel_id: Uuid,
     /// 渠道名称
     pub channel_name: String,
+    ///渠道备注
+    #[serde(default)]
+    pub remark: String,
 }
 
 ///更新渠道信息返回参数
@@ -112,6 +124,8 @@ pub struct UpdateAppChannelResp {
     pub channel_id: Uuid,
     /// 渠道名称
     pub channel_name: String,
+    ///渠道备注
+    pub remark: String,
     ///更新信息
     pub update_info: String,
 }

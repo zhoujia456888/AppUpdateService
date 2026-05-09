@@ -3,10 +3,12 @@ use std::time::{Duration, Instant};
 
 use diesel::pg::PgConnection;
 use diesel::r2d2::{self, ConnectionManager};
+use diesel_migrations::{EmbeddedMigrations, MigrationHarness, embed_migrations};
 use dotenvy::dotenv;
 use tracing::{info, warn};
 
 pub type DbPool = r2d2::Pool<ConnectionManager<PgConnection>>;
+pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("migrations");
 
 pub fn establish_connection_pool() -> DbPool {
     dotenv().ok();
@@ -52,5 +54,24 @@ pub fn establish_connection_pool() -> DbPool {
         }
     }
 
+    run_pending_migrations(&pool);
+
     pool
+}
+
+fn run_pending_migrations(pool: &DbPool) {
+    let mut conn = pool
+        .get()
+        .expect("Failed to get DB connection for running migrations");
+
+    let applied = conn
+        .run_pending_migrations(MIGRATIONS)
+        .expect("Failed to run database migrations");
+
+    if applied.is_empty() {
+        info!("database migrations are up to date");
+        return;
+    }
+
+    info!(count = applied.len(), "database migrations applied");
 }

@@ -18,6 +18,15 @@ use salvo::prelude::*;
 use salvo_oapi::endpoint;
 use uuid::Uuid;
 
+fn normalize_optional_text(value: &str) -> Option<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
 #[endpoint(tags("app_channel"), summary = "创建渠道", description = "创建渠道",request_body = CreateAppChannelReq)]
 pub async fn create_app_channel(
     depot: &mut Depot,
@@ -62,6 +71,7 @@ pub async fn create_app_channel(
     let new_channel = AppChannel {
         id: Uuid::new_v4(),
         channel_name: app_channel_create.channel_name.clone(),
+        remark: normalize_optional_text(&app_channel_create.remark),
         create_user_id: current_user_id,
         create_time: now,
         update_time: now,
@@ -86,6 +96,7 @@ pub async fn create_app_channel(
 
             ApiOut::ok(CreateAppChannelResp {
                 channel_name: app_channel_create.channel_name.to_string(),
+                remark: app_channel_create.remark.trim().to_string(),
                 create_info: format!("渠道'{}'创建成功！", app_channel_create.channel_name),
             })
         }
@@ -178,6 +189,7 @@ fn merge_channel_list_resp(all_app_channel: Vec<AppChannel>) -> Vec<GetAppChanne
         .map(|channel| GetAppChannelListRespItem {
             channel_id: channel.id,
             channel_name: channel.channel_name.to_string(),
+            remark: channel.remark.unwrap_or_default(),
             create_time: channel.create_time,
             update_time: channel.update_time,
         })
@@ -263,6 +275,7 @@ pub async fn update_app_channel(
     let result = diesel::update(app_channel::table.find(app_channel_req.channel_id))
         .set((
             app_channel::channel_name.eq(&app_channel_req.channel_name),
+            app_channel::remark.eq(normalize_optional_text(&app_channel_req.remark)),
             app_channel::update_time.eq(&Local::now().naive_local()),
             app_channel::is_delete.eq(false),
         ))
@@ -278,6 +291,7 @@ pub async fn update_app_channel(
                 ApiOut::ok(UpdateAppChannelResp {
                     channel_id: app_channel_req.channel_id,
                     channel_name: app_channel_req.channel_name,
+                    remark: app_channel_req.remark.trim().to_string(),
                     update_info: "更新渠道信息成功".to_string(),
                 })
             }

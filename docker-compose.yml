@@ -19,6 +19,9 @@ services:
     volumes:
       - app_update_service_logs:/app/logs
       - app_update_service_manage:/app/app_manage
+    networks:
+      - default
+      - app_update_net
     restart: unless-stopped
     pull_policy: build
     healthcheck:
@@ -52,3 +55,7 @@ volumes:
   app_update_service_logs:
   app_update_service_manage:
   app_update_service_pgdata:
+
+networks:
+  app_update_net:
+    name: ${APP_UPDATE_DOCKER_NETWORK:-app_update_net}

@@ -4,6 +4,7 @@ diesel::table! {
     app_channel (id) {
         id -> Uuid,
         channel_name -> Varchar,
+        remark -> Nullable<Varchar>,
         create_user_id -> Uuid,
         create_time -> Timestamp,
         update_time -> Timestamp,
