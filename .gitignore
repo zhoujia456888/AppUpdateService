@@ -3,3 +3,4 @@
 logs
 app_manage
 .env.production
+/vendor/apk-info-zip/target/
